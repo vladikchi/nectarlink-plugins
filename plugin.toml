@@ -1,0 +1,106 @@
+id = "local/nectarlink"
+name = "NectarLink"
+version = "0.12.0"
+plugin_api = 52
+author = "Local integration"
+license = "GPL-3.0-or-later"
+description = "Компактная панель телефона NectarLink"
+icon = "device-mobile"
+dependencies = ["python"]
+tags = ["bar", "panel", "service", "network"]
+
+[[setting]]
+key = "apps_display"
+type = "select"
+label_key = "settings.apps_display"
+default = "icons_text"
+options = [{value="icons", label_key="settings.apps_icons"}, {value="icons_text", label_key="settings.apps_icons_text"}]
+
+[[setting]]
+key = "panel_controls"
+type = "bool"
+label_key = "settings.panel_controls"
+default = true
+
+[[setting]]
+key = "show_percentage"
+type = "bool"
+label_key = "settings.show_percentage"
+default = true
+
+[[setting]]
+key = "show_charging"
+type = "bool"
+label_key = "settings.show_charging"
+default = true
+
+[[setting]]
+key = "show_name"
+type = "bool"
+label_key = "settings.show_name"
+default = false
+
+[[setting]]
+key = "hide_offline"
+type = "bool"
+label_key = "settings.hide_offline"
+default = false
+
+[[setting]]
+key = "panel_battery"
+type = "bool"
+label_key = "settings.panel_battery"
+default = true
+
+[[setting]]
+key = "panel_actions"
+type = "bool"
+label_key = "settings.panel_actions"
+default = true
+
+[[setting]]
+key = "executable"
+type = "file"
+label_key = "settings.executable"
+default = ""
+
+[[setting]]
+key = "panel_timeline"
+type = "bool"
+label_key = "settings.panel_timeline"
+default = true
+
+[[setting]]
+key = "panel_notifications"
+type = "bool"
+label_key = "settings.panel_notifications"
+default = true
+
+[[setting]]
+key = "panel_navigation"
+type = "bool"
+label_key = "settings.panel_navigation"
+default = true
+
+[[setting]]
+key = "helper"
+type = "file"
+label_key = "settings.helper"
+default = ""
+
+[[service]]
+id = "connection"
+entry = "service.luau"
+
+[[widget]]
+id = "phone"
+entry = "widget.luau"
+
+[[panel]]
+id = "controls"
+entry = "panel.luau"
+width = 860
+height = 470
+placement = "attached"
+position = "auto"
+open_near_click = true

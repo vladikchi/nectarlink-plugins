@@ -1,0 +1,19 @@
+{
+  "settings": {
+    "apps_display": "Apps: grid display",
+    "apps_icons": "Icons only",
+    "apps_icons_text": "Icons with names",
+    "panel_controls": "Popup: phone controls",
+    "panel_notifications": "Popup: phone notifications",
+    "panel_timeline": "Popup: phone timeline",
+    "panel_navigation": "Popup: left navigation",
+    "show_percentage": "Bar: show battery percentage",
+    "show_charging": "Bar: show charging indicator",
+    "show_name": "Bar: show phone name",
+    "hide_offline": "Bar: hide widget when disconnected",
+    "panel_battery": "Popup: battery card",
+    "panel_actions": "Popup: action cards",
+    "executable": "NectarLink executable (empty: search PATH)",
+    "helper": "Integration helper (empty: bundled)"
+  }
+}
