@@ -1,13 +1,13 @@
-id = "local/nectarlink"
+id = "vladikchi/nectarlink"
 name = "NectarLink"
-version = "0.12.0"
+version = "0.16.0"
 plugin_api = 52
-author = "Local integration"
+author = "vladikchi"
 license = "GPL-3.0-or-later"
-description = "Компактная панель телефона NectarLink"
+description = "Phone messages, calls, photos and controls through the NectarLink extended-API fork"
 icon = "device-mobile"
-dependencies = ["python"]
 tags = ["bar", "panel", "service", "network"]
+dependencies = ["nectarlink-desktop", "xdg-open"]
 
 [[setting]]
 key = "apps_display"
@@ -81,12 +81,6 @@ key = "panel_navigation"
 type = "bool"
 label_key = "settings.panel_navigation"
 default = true
-
-[[setting]]
-key = "helper"
-type = "file"
-label_key = "settings.helper"
-default = ""
 
 [[service]]
 id = "connection"
