@@ -1,6 +1,7 @@
 --!nonstrict
 -- Shared UI elements; no HTTP, credentials or independent phone state.
 -- panel.luau owns model; only explicit click handlers call send.
+local ui = require("./compat.luau").new(ui, noctalia.getColor)
 local M = {}
 local geometry = {
   panelWidth = 860,
@@ -208,7 +209,7 @@ function M.new(model, send)
       padding = 10,
       radius = 10,
       clip = true,
-      fill = "surface_container",
+      fill = "card",
     }, {
       ui.glyph({ name = glyph or "info-circle", size = 20, color = "primary" }),
       ui.column({ gap = 4, flexGrow = 1, clip = true }, {
@@ -232,7 +233,7 @@ function M.new(model, send)
       paddingH = 6,
       paddingV = 3,
       radius = 10,
-      fill = "surface_container_high",
+      fill = "raised",
     }, {
       ui.glyph({ name = glyph, size = 14, color = "on_surface_variant" }),
       label(text, 11, "on_surface_variant"),
@@ -249,8 +250,8 @@ function M.new(model, send)
       clip = true,
       height = 68,
       opacity = enabled and 1 or 0.48,
-      fill = (active or model.hovered == key) and "primary/0.18" or "surface_container",
-      border = active and "primary/0.5" or "surface_container",
+      fill = (active or model.hovered == key) and "primary/0.18" or "card",
+      border = active and "primary/0.5" or "card",
       borderWidth = 1,
       tooltip = reason or text,
       onHover = "onTileHover",

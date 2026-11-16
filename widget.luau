@@ -1,5 +1,6 @@
 --!nonstrict
 -- Compact nl.snapshot view and panel launcher; no HTTP or credentials.
+local ui = require("./ui/compat.luau").new(ui, noctalia.getColor)
 local snapshot = nil
 local lastView = nil
 local lastRaw = nil
@@ -28,7 +29,7 @@ local function render()
       break
     end
   end
-  local color = phone and "on_surface" or "outline_variant"
+  local color = phone and "on_surface" or "muted_border"
   -- Include orientation and settings in the signature so only visible changes redraw.
   local fields = {
     phone ~= nil,

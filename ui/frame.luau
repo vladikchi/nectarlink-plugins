@@ -1,5 +1,6 @@
 --!nonstrict
 -- Frame and navigation for the fixed 860x470 panel.
+local ui = require("./compat.luau").new(ui, noctalia.getColor)
 local M = {}
 function M.new(model, components, actions)
   local geometry = require("./components.luau").layout
@@ -65,7 +66,7 @@ function M.new(model, components, actions)
           height = geometry.pageHeight,
           radius = 12,
           align = "center",
-          fill = "surface_container/0.6",
+          fill = "card/0.6",
         }, nav)
       )
     end

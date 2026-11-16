@@ -1,5 +1,6 @@
 --!nonstrict
 -- Home: device card, actions, notifications and timeline.
+local ui = require("./compat.luau").new(ui, noctalia.getColor)
 local M = {}
 function M.new(model, components, actions, controls, frame)
   local geometry = require("./components.luau").layout
@@ -137,8 +138,8 @@ function M.new(model, components, actions, controls, frame)
       radius = 10,
       height = count > 0 and (36 + count * 38) or 64,
       clip = true,
-      fill = "surface_container/0.65",
-      border = "outline_variant/0.35",
+      fill = "card/0.65",
+      border = "muted_border/0.35",
       borderWidth = 1,
     }, rows)
   end
@@ -283,7 +284,7 @@ function M.new(model, components, actions, controls, frame)
         radius = 12,
         clip = true,
         opacity = online and 1 or 0.55,
-        fill = "surface_container_high",
+        fill = "raised",
         border = "primary/0.5",
         borderWidth = 1,
         align = "center",
@@ -342,7 +343,7 @@ function M.new(model, components, actions, controls, frame)
           padding = 6,
           radius = 12,
           clip = true,
-          fill = "surface_container/0.6",
+          fill = "card/0.6",
           align = "center",
           justify = "center",
         }, power)
@@ -435,7 +436,7 @@ function M.new(model, components, actions, controls, frame)
             radius = 12,
             height = 124,
             clip = true,
-            fill = "surface_container",
+            fill = "card",
           }, {
             ui.input({
               key = "draft-" .. id .. "-" .. tostring(model.draftRevisions[id] or 0),
@@ -580,7 +581,7 @@ function M.new(model, components, actions, controls, frame)
             height = 80,
             clip = true,
             radius = 12,
-            fill = "surface_container",
+            fill = "card",
           }, {
             label(
               preview(

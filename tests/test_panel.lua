@@ -123,7 +123,7 @@ fixture.ringBusy = false
 onTileHover("true", "files")
 assert(keyed("files").props.fill == "primary/0.18")
 onTileHover("false", "files")
-assert(keyed("files").props.fill == "surface_container")
+assert(keyed("files").props.fill == "#202020") -- Minimal mock has no palette API.
 assert(keyed("event-a") and not keyed("event-b"))
 fixture.devices[1].online = false
 update(fixture)
@@ -307,17 +307,18 @@ fixture.notifications =
   { { key = "long", deviceId = "one", appName = "App\nname", title = huge, text = huge } }
 fixture.notificationsState = "ready"
 update(fixture)
-assert(tree.props.clip and tree.props.height == 438 and tree.props.padding == 3)
-assert(keyed("dashboard").props.clip and keyed("dashboard").props.height == 398)
-assert(keyed("content").props.clip and keyed("sidebar").props.clip)
-assert(keyed("timeline").props.clip and keyed("timeline").props.height <= 120)
-assert(keyed("event-long-a").props.clip and keyed("event-long-a").props.height == 32)
-assert(keyed("notifications").props.clip and keyed("notifications").props.height == 104)
-assert(keyed("notice-long").props.clip and keyed("notice-long").props.height == 80)
+assert(tree.props.clip == nil and tree.props.height == 438 and tree.props.padding == 3)
+assert(keyed("dashboard").props.clip == nil and keyed("dashboard").props.height == 398)
+assert(keyed("content").props.clip == nil and keyed("sidebar").props.clip == nil)
+assert(keyed("timeline").props.clip == nil and keyed("timeline").props.height <= 120)
+assert(keyed("event-long-a").props.clip == nil and keyed("event-long-a").props.height == 32)
+assert(keyed("notifications").props.clip == nil and keyed("notifications").props.height == 104)
+assert(keyed("notice-long").props.clip == nil and keyed("notice-long").props.height == 80)
 for _, n in ipairs(nodes("label")) do
   assert(not n.props.text:find("[\r\n\t]"))
   assert(not n.props.text:find("\226\128\168", 1, true))
   assert(utf8.len(n.props.text))
+  assert(n.props.maxWidth and n.props.maxWidth > 0 and n.props.maxWidth <= 828)
 end
 assert(utf8.len(keyed("notice-long").children[3].props.text) <= 97)
 assert(utf8.len(keyed("event-long-a").children[2].children[1].children[1].props.text) <= 29)
@@ -368,9 +369,9 @@ assert(
     <= keyed("device").props.height
 )
 assert(
-  keyed("phone-preview").props.clip
-    and keyed("phone-preview-screen").props.clip
-    and keyed("phone-info").props.clip
+  keyed("phone-preview").props.clip == nil
+    and keyed("phone-preview-screen").props.clip == nil
+    and keyed("phone-info").props.clip == nil
 )
 assert(
   keyed("phone-controls").props.width == keyed("timeline").props.width
@@ -378,7 +379,7 @@ assert(
 )
 local header = keyed("timeline-header")
 assert(
-  header.props.clip
+  header.props.clip == nil
     and header.children[1].props.width + header.children[2].props.width + header.props.gap
       == header.props.width
 )
@@ -386,11 +387,11 @@ for _, id in ipairs({ "long-a", "long-b" }) do
   local row = keyed("event-" .. id)
   local icon, text = row.children[1], row.children[2]
   assert(icon.props.width + row.props.gap + text.props.width == row.props.width)
-  assert(text.props.clip and text.props.height == 32)
+  assert(text.props.clip == nil and text.props.height == 32)
   assert(text.children[1].props.height + text.children[2].props.height == 32)
   for _, slot in ipairs(text.children) do
     assert(
-      slot.props.clip
+      slot.props.clip == nil
         and slot.children[1].props.maxWidth == 216
         and slot.children[1].props.maxLines == 1
     )

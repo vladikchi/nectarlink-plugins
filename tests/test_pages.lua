@@ -326,7 +326,9 @@ for _, page in ipairs({ "messages", "calls", "photos", "apps", "deck" }) do
       for _, cell in ipairs(row.children) do
         totalWidth = totalWidth + cell.props.width
         assert(
-          cell.props.height == row.props.height and cell.props.clip and not cell.props.borderWidth
+          cell.props.height == row.props.height
+            and cell.props.clip == nil
+            and not cell.props.borderWidth
         )
         local used = 2 * cell.props.padding + (#cell.children - 1) * cell.props.gap
         for _, child in ipairs(cell.children) do
@@ -437,7 +439,7 @@ for _, case in ipairs({
   assert(used <= 398)
   local builds = nodeBuilds
   onTileHover("true", "page-item-app-1")
-  assert(key("page-item-app-1").props.fill == "surface_container_high")
+  assert(key("page-item-app-1").props.fill == "#202020") -- Minimal mock has no palette API.
   onTileHover("false", "page-item-app-1")
   assert(nodeBuilds == builds, "app hover must reuse the existing tree")
   key("pager-next").props.onClick()

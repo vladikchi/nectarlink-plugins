@@ -1,5 +1,6 @@
 --!nonstrict
 -- Pages and confirmations share model-owned drafts and navigation without copying them.
+local ui = require("./compat.luau").new(ui, noctalia.getColor)
 local M = {}
 function M.new(model, components, actions, items)
   local geometry = require("./components.luau").layout
@@ -651,7 +652,7 @@ function M.new(model, components, actions, items)
       justify = "start",
       clip = true,
       radius = 10,
-      fill = "surface_container/0.5",
+      fill = "card/0.5",
     }, rows)
   end
   return { render = sidebarPage }

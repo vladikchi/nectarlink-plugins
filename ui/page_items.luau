@@ -1,5 +1,6 @@
 --!nonstrict
 -- Lists, grids and pagination: node construction and explicit callbacks only.
+local ui = require("./compat.luau").new(ui, noctalia.getColor)
 local M = {}
 local function finite(value)
   return type(value) == "number" and value == value and math.abs(value) <= 9007199254740991
@@ -169,7 +170,7 @@ function M.new(model, components, actions)
                     height = 128,
                     align = "center",
                     justify = "center",
-                    fill = "surface_container_high",
+                    fill = "raised",
                     radius = 6,
                   }, {
                     ui.glyph({ name = "photo", size = 28, color = "on_surface_variant" }),
@@ -261,9 +262,8 @@ function M.new(model, components, actions)
             tooltip = title .. (subtitle ~= "" and (" · " .. subtitle) or ""),
             onClick = itemClick,
             onHover = model.page == "apps" and "onTileHover" or nil,
-            fill = model.page == "apps"
-                and (model.hovered == appKey and "surface_container_high" or "transparent")
-              or "surface_container",
+            fill = model.page == "apps" and (model.hovered == appKey and "raised" or "transparent")
+              or "card",
           }, children)
         )
         if model.page == "apps" then
@@ -317,7 +317,7 @@ function M.new(model, components, actions)
           height = 40,
           clip = true,
           radius = 9,
-          fill = "surface_container",
+          fill = "card",
           tooltip = model.page == "apps" and noctalia.tr("apps.open_window") or title,
           onClick = itemClick,
         }, children))

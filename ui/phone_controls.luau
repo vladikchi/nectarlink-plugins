@@ -1,5 +1,6 @@
 --!nonstrict
 -- Phone and session controls. Unknown state must not be represented as off.
+local ui = require("./compat.luau").new(ui, noctalia.getColor)
 local M = {}
 function M.new(model, components, actions)
   local geometry = require("./components.luau").layout
@@ -71,7 +72,7 @@ function M.new(model, components, actions)
           align = "center",
           justify = "center",
           opacity = enabled and 1 or 0.45,
-          fill = active and "primary/0.25" or "surface_container_high",
+          fill = active and "primary/0.25" or "raised",
           tooltip = reason,
           onClick = enabled and function()
             if id == "wifi" and active then
@@ -190,7 +191,7 @@ function M.new(model, components, actions)
           gap = 6,
           padding = 3,
           radius = 9,
-          fill = "surface_container_high",
+          fill = "raised",
           tooltip = kind == "watch" and noctalia.tr("sessions.watch_hint")
             or noctalia.tr("sessions.control_hint"),
         }, {
@@ -247,7 +248,7 @@ function M.new(model, components, actions)
       padding = 8,
       radius = 14,
       align = "start",
-      fill = "surface_container/0.75",
+      fill = "card/0.75",
       clip = true,
     }, rows)
   end
@@ -297,7 +298,7 @@ function M.new(model, components, actions)
       gap = 6,
       clip = true,
       radius = 12,
-      fill = "surface_container/0.75",
+      fill = "card/0.75",
       align = "center",
     }, buttons)
   end

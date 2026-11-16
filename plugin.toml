@@ -1,7 +1,7 @@
 id = "vladikchi/nectarlink"
 name = "NectarLink"
-version = "0.16.0"
-plugin_api = 52
+version = "0.16.1"
+plugin_api = 32
 author = "vladikchi"
 license = "GPL-3.0-or-later"
 description = "Phone messages, calls, photos and controls through the NectarLink extended-API fork"
