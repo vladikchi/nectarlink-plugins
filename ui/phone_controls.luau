@@ -1,6 +1,6 @@
 --!nonstrict
 -- Phone and session controls. Unknown state must not be represented as off.
-local ui = require("./compat.luau").new(ui, noctalia.getColor)
+local palette = require("./palette.luau")
 local M = {}
 function M.new(model, components, actions)
   local geometry = require("./components.luau").layout
@@ -16,6 +16,8 @@ function M.new(model, components, actions)
       ui.row({ width = 244, height = 28, gap = 5, align = "center" }, {
         ui.label({
           text = noctalia.tr("controls.title"),
+          maxWidth = 211,
+          maxLines = 1,
           fontFamily = "sans-serif",
           fontSize = 12,
           fontWeight = "bold",
@@ -72,7 +74,7 @@ function M.new(model, components, actions)
           align = "center",
           justify = "center",
           opacity = enabled and 1 or 0.45,
-          fill = active and "primary/0.25" or "raised",
+          fill = active and "primary/0.25" or palette("raised"),
           tooltip = reason,
           onClick = enabled and function()
             if id == "wifi" and active then
@@ -93,7 +95,7 @@ function M.new(model, components, actions)
             size = 17,
             color = active and "primary" or "on_surface_variant",
           }),
-          label(title, 9, "on_surface_variant"),
+          label(title, 9, "on_surface_variant", false, 36),
         })
       )
     end
@@ -187,45 +189,40 @@ function M.new(model, components, actions)
           key = "session-row-" .. kind,
           width = 244,
           height = 32,
-          clip = true,
           gap = 6,
           padding = 3,
           radius = 9,
-          fill = "raised",
+          fill = palette("raised"),
           tooltip = kind == "watch" and noctalia.tr("sessions.watch_hint")
             or noctalia.tr("sessions.control_hint"),
         }, {
           ui.glyph({ name = def[2], size = 15, color = "on_surface_variant" }),
-          ui.column(
-            { gap = 0, flexGrow = 1, height = 26, clip = true, align = "start", justify = "center" },
-            {
-              ui.column({ height = 14, clip = true, align = "start", justify = "center" }, {
-                ui.label({
-                  text = def[1],
-                  fontFamily = "sans-serif",
-                  fontSize = 10,
-                  maxWidth = 184,
-                  maxLines = 1,
-                }),
+          ui.column({ gap = 0, flexGrow = 1, height = 26, align = "start", justify = "center" }, {
+            ui.column({ height = 14, align = "start", justify = "center" }, {
+              ui.label({
+                text = def[1],
+                fontFamily = "sans-serif",
+                fontSize = 10,
+                maxWidth = 184,
+                maxLines = 1,
               }),
-              ui.column({
-                height = 12,
-                clip = true,
-                align = "start",
-                justify = "center",
-                visible = text ~= "",
-              }, {
-                ui.label({
-                  text = text,
-                  fontFamily = "sans-serif",
-                  fontSize = 9,
-                  maxWidth = 184,
-                  maxLines = 1,
-                  color = "on_surface_variant",
-                }),
+            }),
+            ui.column({
+              height = 12,
+              align = "start",
+              justify = "center",
+              visible = text ~= "",
+            }, {
+              ui.label({
+                text = text,
+                fontFamily = "sans-serif",
+                fontSize = 9,
+                maxWidth = 184,
+                maxLines = 1,
+                color = "on_surface_variant",
               }),
-            }
-          ),
+            }),
+          }),
           ui.toggle({
             key = "session-" .. kind,
             checked = active,
@@ -248,8 +245,7 @@ function M.new(model, components, actions)
       padding = 8,
       radius = 14,
       align = "start",
-      fill = "card/0.75",
-      clip = true,
+      fill = palette("card", 0.75),
     }, rows)
   end
 
@@ -296,9 +292,8 @@ function M.new(model, components, actions)
       height = 40,
       padding = 4,
       gap = 6,
-      clip = true,
       radius = 12,
-      fill = "card/0.75",
+      fill = palette("card", 0.75),
       align = "center",
     }, buttons)
   end

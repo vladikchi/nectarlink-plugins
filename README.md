@@ -15,15 +15,16 @@ data is shown. The catalog thumbnail uses the official Noctalia thumbnail genera
 | Field | Value |
 | --- | --- |
 | ID | `vladikchi/nectarlink` |
-| Version | `0.16.1` |
+| Version | `0.16.2` |
 | Entries | Bar widget: `phone`; panel: `controls`; service: `connection` |
 | License | GPL-3.0-or-later; see [LICENSE](LICENSE) |
 
 ## Requirements
 
 - Linux and Noctalia with **plugin API 32** (available before Noctalia **5.3.0**).
-  The compatibility adapter targets 5.3 and newer. Adapted Home rendering and
-  navigation callbacks were checked on 5.5.0; visual/device testing on 5.3 is pending.
+  Compatibility targets 5.3 and newer. Version 0.16.1 Home rendering/navigation
+  were checked on 5.5.0; the simpler 0.16.2 layout and native 5.3/device testing
+  still need visual verification.
 - `nectarlink-desktop`: the **extended-API fork**, running as the same user as
   Noctalia, with its local API enabled. An ordinary upstream build is insufficient.
   Put the executable on Noctalia's `PATH`, or set its absolute path in the plugin.
@@ -247,16 +248,15 @@ application palette files are independent of this plugin.
 
 ### Noctalia 5.3 compatibility
 
-`ui/compat.luau` adapts UI constructors to the API 32 vocabulary. It resolves
-legacy surface/outline roles to the current theme's colors on both palette
-generations, including alpha. Older shells use `surface_variant` and `outline`;
-newer shells retain separate regular/high-container tones and the new outline
-role. On 5.3, regular and raised cards share the available legacy surface tone.
+UI uses native Noctalia constructors directly, without a compatibility wrapper
+or recursive layout calculations. `ui/palette.luau` only resolves three renamed
+surface/outline roles to theme colors, including alpha. Older shells use
+`surface_variant` and `outline`; newer shells keep separate regular/high-container
+tones and the new outline role. On 5.3 both cards use the legacy surface tone.
 
-The adapter does not forward API 52 `clip` properties on any version. Instead,
-known container widths bound text with `maxWidth` and existing `maxLines`; fixed
-row/card sizes and pagination budgets remain in place. This is not equivalent to
-paint clipping for arbitrary overflowing children or unusual font/DPI settings.
+There are no API 52 `clip` properties. Text widths are declared in the relevant
+cards, rows and grids, using their existing dimensions and `maxLines`. This is
+not equivalent to paint clipping for arbitrary child overflow or unusual fonts/DPI.
 Visual verification on 5.3 is required before claiming tested support. HTTP,
 actions, confirmations, caches and phone profiles are unchanged.
 
@@ -280,7 +280,7 @@ legacy Russian API notice is matched as protocol data, independent of UI locale.
 | `service/pages.luau` | Read-only pages, schema checks, TTL, single-flight, preview checks and cache eviction. |
 | `service/actions.luau` | Explicit phone/PC actions, independent generations and no automatic replay. |
 | `ui/components.luau` | Shared geometry, text, buttons, cards, pagination and error descriptions. |
-| `ui/compat.luau` | API 32 UI adapter: theme role aliases, supported props and bounded text. |
+| `ui/palette.luau` | Three renamed palette roles resolved to old/new theme colors. No UI or layout logic. |
 | `ui/frame.luau` | Panel frame, header and navigation. |
 | `ui/home.luau` | Device card, quick actions, notifications and timeline. |
 | `ui/phone_controls.luau` | Device toggles, audio sessions and ringer modes; preserves unknown state. |

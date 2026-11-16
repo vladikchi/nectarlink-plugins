@@ -1,6 +1,6 @@
 -- API 32 contract checks; no real host, profile, network or processes.
 dofile("tests/test_runtime.lua")
-local compat = require("./ui/compat.luau")
+local color = require("./ui/palette.luau")
 local host = setmetatable({}, {
   __index = function(_, kind)
     return function(props, children)
@@ -13,48 +13,21 @@ local old = { surface_variant = "#123456", outline = "#abcdef" }
 local new =
   { surface_container = "#223344", surface_container_high = "#445566", outline_variant = "#ddeeff" }
 for _, palette in ipairs({ old, new }) do
-  local ui = compat.new(host, function(role)
-    return palette[role]
-  end)
-  local callback = function()
-    error("construction must not execute callbacks")
-  end
-  local input = {
-    fill = "card/0.5",
-    border = "muted_border/0.35",
-    clip = true,
-    width = 120,
-    onClick = callback,
+  noctalia = {
+    getColor = function(role)
+      return palette[role]
+    end,
   }
-  local label = ui.label({ text = string.rep("Long name 🦀", 100), maxLines = 1 })
-  local node = ui.row(input, { ui.glyph({ size = 20 }), label })
-  assert(input.clip == true and input.fill == "card/0.5", "caller props must not change")
-  assert(node.props.onClick == callback)
-  assert(node.props.fill == (palette.surface_container or palette.surface_variant) .. "80")
-  assert(node.props.border == (palette.outline_variant or palette.outline) .. "59")
-  assert(label.props.maxWidth == 100 and label.props.maxLines == 1)
-  assert(ui.colorValue("primary/0.18") == "primary/0.18")
-  assert(ui.colorValue("#123456") == "#123456")
-  assert(ui.box({ fill = "card/0" }).props.fill:sub(-2) == "00")
-  assert(ui.box({ fill = "card/1" }).props.fill:sub(-2) == "ff")
-  assert(
-    ui.box({ fill = "raised" }).props.fill
-      == (palette.surface_container_high or palette.surface_variant)
-  )
+  assert(color("card", 0.5) == (palette.surface_container or palette.surface_variant) .. "80")
+  assert(color("muted_border", 0.35) == (palette.outline_variant or palette.outline) .. "59")
+  assert(color("card", 0):sub(-2) == "00")
+  assert(color("card", 1):sub(-2) == "ff")
+  assert(color("raised") == (palette.surface_container_high or palette.surface_variant))
   -- Palette lookup is performed per construction, not frozen at module load.
   local token = palette.surface_container and "surface_container" or "surface_variant"
   palette[token] = "#010203"
-  assert(ui.box({ fill = "card" }).props.fill == "#010203")
+  assert(color("card") == "#010203")
 end
-local ui = compat.new(host, function(role)
-  return old[role]
-end)
-local text = ui.label({ text = "bounded", maxWidth = 15 })
-ui.column({ width = 100, paddingH = 10 }, { text })
-assert(text.props.maxWidth == 15, "existing narrower bounds must win")
-local flexible = ui.label({ text = "flexible" })
-ui.row({ width = 100, gap = 5 }, { ui.box({ width = 40 }), flexible })
-assert(flexible.props.maxWidth == 55)
 -- Exercise the complete real panel against a host that rejects new props and
 -- raw adapter aliases. Navigation must not dispatch consequential commands.
 local commands, tree, watcher = {}, nil, nil
@@ -104,6 +77,7 @@ noctalia = {
   },
 }
 dofile("panel.luau")
+assert(ui == host, "the plugin must use native constructors without replacing ui")
 onOpen()
 local function validate(node)
   assert(node.props.clip == nil)
@@ -131,5 +105,5 @@ for _, command in ipairs(commands) do
 end
 onClose()
 print(
-  "PASS: old/new palette aliases, alpha, theme refresh, API 32 props, bounded text and untouched callbacks"
+  "PASS: old/new palette colors, alpha, theme refresh, native API 32 UI and explicit text bounds"
 )

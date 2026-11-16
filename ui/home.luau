@@ -1,6 +1,6 @@
 --!nonstrict
 -- Home: device card, actions, notifications and timeline.
-local ui = require("./compat.luau").new(ui, noctalia.getColor)
+local palette = require("./palette.luau")
 local M = {}
 function M.new(model, components, actions, controls, frame)
   local geometry = require("./components.luau").layout
@@ -23,9 +23,8 @@ function M.new(model, components, actions, controls, frame)
         gap = 8,
         width = 244,
         height = 20,
-        clip = true,
       }, {
-        ui.column({ width = 184, height = 20, clip = true, justify = "center", align = "start" }, {
+        ui.column({ width = 184, height = 20, justify = "center", align = "start" }, {
           ui.label({
             text = noctalia.tr("home.timeline"),
             fontFamily = "sans-serif",
@@ -69,53 +68,42 @@ function M.new(model, components, actions, controls, frame)
               width = 244,
               gap = 8,
               height = 32,
-              clip = true,
               align = "center",
             }, {
-              ui.column(
-                { width = 20, height = 32, align = "center", justify = "center", clip = true },
-                {
-                  ui.glyph({ name = glyphs[item.kind] or "history", size = 18, color = "primary" }),
-                }
-              ),
+              ui.column({ width = 20, height = 32, align = "center", justify = "center" }, {
+                ui.glyph({ name = glyphs[item.kind] or "history", size = 18, color = "primary" }),
+              }),
               ui.column({
                 key = "event-text-" .. tostring(item.id),
                 width = 216,
                 height = 32,
                 gap = 0,
-                clip = true,
                 align = "start",
               }, {
-                ui.column(
-                  { width = 216, height = 18, clip = true, align = "start", justify = "center" },
-                  {
-                    ui.label({
-                      text = preview(
-                        type(item.title) == "string" and item.title or noctalia.tr("home.event"),
-                        28
-                      ),
-                      fontFamily = "sans-serif",
-                      fontSize = 12,
-                      fontWeight = "bold",
-                      maxWidth = 216,
-                      maxLines = 1,
-                    }),
-                  }
-                ),
-                ui.column(
-                  { width = 216, height = 14, clip = true, align = "start", justify = "center" },
-                  {
-                    ui.label({
-                      text = item.direction == "incoming" and noctalia.tr("home.received")
-                        or noctalia.tr("home.sent"),
-                      fontFamily = "sans-serif",
-                      fontSize = 10,
-                      color = "on_surface_variant",
-                      maxWidth = 216,
-                      maxLines = 1,
-                    }),
-                  }
-                ),
+                ui.column({ width = 216, height = 18, align = "start", justify = "center" }, {
+                  ui.label({
+                    text = preview(
+                      type(item.title) == "string" and item.title or noctalia.tr("home.event"),
+                      28
+                    ),
+                    fontFamily = "sans-serif",
+                    fontSize = 12,
+                    fontWeight = "bold",
+                    maxWidth = 216,
+                    maxLines = 1,
+                  }),
+                }),
+                ui.column({ width = 216, height = 14, align = "start", justify = "center" }, {
+                  ui.label({
+                    text = item.direction == "incoming" and noctalia.tr("home.received")
+                      or noctalia.tr("home.sent"),
+                    fontFamily = "sans-serif",
+                    fontSize = 10,
+                    color = "on_surface_variant",
+                    maxWidth = 216,
+                    maxLines = 1,
+                  }),
+                }),
               }),
             })
           )
@@ -137,9 +125,8 @@ function M.new(model, components, actions, controls, frame)
       padding = 8,
       radius = 10,
       height = count > 0 and (36 + count * 38) or 64,
-      clip = true,
-      fill = "card/0.65",
-      border = "muted_border/0.35",
+      fill = palette("card", 0.65),
+      border = palette("muted_border", 0.35),
       borderWidth = 1,
     }, rows)
   end
@@ -175,6 +162,7 @@ function M.new(model, components, actions, controls, frame)
           fontFamily = "sans-serif",
           fontSize = 12,
           maxLines = 3,
+          maxWidth = mainWidth,
           height = 52,
           color = "on_surface_variant",
         })
@@ -203,7 +191,6 @@ function M.new(model, components, actions, controls, frame)
         gap = 4,
         radius = 7,
         fill = "primary/0.12",
-        clip = true,
         align = "center",
         justify = "center",
       }, {
@@ -216,12 +203,21 @@ function M.new(model, components, actions, controls, frame)
       }),
       ui.box({ width = 14, height = 2, radius = 1, fill = "on_surface_variant/0.45" }),
     }
+    local infoWidth = mainWidth - 24 - 56 - 10 - (powerVisible and 130 or 0)
     local info = {
-      label(phone and phone.name or noctalia.tr("common.disconnected"), 16, "on_surface", true),
+      label(
+        phone and phone.name or noctalia.tr("common.disconnected"),
+        16,
+        "on_surface",
+        true,
+        infoWidth
+      ),
       label(
         phone and type(phone.platform) == "string" and phone.platform or "NectarLink",
         12,
-        "on_surface_variant"
+        "on_surface_variant",
+        false,
+        infoWidth
       ),
       ui.row({ gap = 6, justify = "start" }, {
         badge(
@@ -232,7 +228,8 @@ function M.new(model, components, actions, controls, frame)
                 relay = noctalia.tr("connection.relay"),
               })[phone.link] or noctalia.tr("connection.connected"))
             or noctalia.tr("connection.offline"),
-          online and "link" or "unlink"
+          online and "link" or "unlink",
+          infoWidth
         ),
       }),
     }
@@ -246,7 +243,8 @@ function M.new(model, components, actions, controls, frame)
                   "battery.charging"
                 ) or noctalia.tr("battery.discharging")))
               or noctalia.tr("battery.unknown"),
-            battery and battery.charging and "battery-charging" or "battery"
+            battery and battery.charging and "battery-charging" or "battery",
+            infoWidth
           ),
         })
       )
@@ -282,9 +280,8 @@ function M.new(model, components, actions, controls, frame)
         height = 92,
         padding = 5,
         radius = 12,
-        clip = true,
         opacity = online and 1 or 0.55,
-        fill = "raised",
+        fill = palette("raised"),
         border = "primary/0.5",
         borderWidth = 1,
         align = "center",
@@ -294,7 +291,6 @@ function M.new(model, components, actions, controls, frame)
         key = "phone-info",
         gap = 3,
         flexGrow = 1,
-        clip = true,
         align = "start",
         justify = "center",
       }, info),
@@ -312,10 +308,9 @@ function M.new(model, components, actions, controls, frame)
           key = "battery-value",
           width = 108,
           height = 30,
-          clip = true,
           align = "center",
           justify = "center",
-        }, { label(level and (tostring(level) .. "%") or "—", 21, powerColor, true) }),
+        }, { label(level and (tostring(level) .. "%") or "—", 21, powerColor, true, 108) }),
       }
       if level then
         table.insert(
@@ -325,11 +320,13 @@ function M.new(model, components, actions, controls, frame)
       end
       table.insert(
         power,
-        ui.column({ width = 108, height = 14, clip = true, align = "center", justify = "center" }, {
+        ui.column({ width = 108, height = 14, align = "center", justify = "center" }, {
           label(
             online and noctalia.tr("battery.phone") or noctalia.tr("common.last_known"),
             10,
-            "on_surface_variant"
+            "on_surface_variant",
+            false,
+            108
           ),
         })
       )
@@ -342,8 +339,7 @@ function M.new(model, components, actions, controls, frame)
           height = 92,
           padding = 6,
           radius = 12,
-          clip = true,
-          fill = "card/0.6",
+          fill = palette("card", 0.6),
           align = "center",
           justify = "center",
         }, power)
@@ -358,7 +354,6 @@ function M.new(model, components, actions, controls, frame)
         padding = 12,
         radius = 16,
         height = 126,
-        clip = true,
         align = "center",
         fill = "primary/0.12",
       }, deviceCard)
@@ -435,8 +430,7 @@ function M.new(model, components, actions, controls, frame)
             padding = 8,
             radius = 12,
             height = 124,
-            clip = true,
-            fill = "card",
+            fill = palette("card"),
           }, {
             ui.input({
               key = "draft-" .. id .. "-" .. tostring(model.draftRevisions[id] or 0),
@@ -482,6 +476,7 @@ function M.new(model, components, actions, controls, frame)
             }),
             ui.label({
               text = noctalia.tr("home.transport_only"),
+              maxWidth = mainWidth - 16,
               fontFamily = "sans-serif",
               fontSize = 9,
               color = "on_surface_variant",
@@ -550,6 +545,8 @@ function M.new(model, components, actions, controls, frame)
         ui.row({ gap = 6, align = "center", height = 18 }, {
           ui.label({
             text = noctalia.tr("home.notifications", { count = #notices }),
+            maxWidth = mainWidth - 110,
+            maxLines = 1,
             fontFamily = "sans-serif",
             fontSize = 13,
             fontWeight = "bold",
@@ -563,7 +560,7 @@ function M.new(model, components, actions, controls, frame)
               send("open")
             end,
           }, {
-            label(noctalia.tr("common.show_all"), 11, "primary"),
+            label(noctalia.tr("common.show_all"), 11, "primary", false, 90),
             ui.glyph({ name = "external-link", size = 13, color = "primary" }),
           }),
         }),
@@ -579,9 +576,8 @@ function M.new(model, components, actions, controls, frame)
             gap = 2,
             padding = 8,
             height = 80,
-            clip = true,
             radius = 12,
-            fill = "card",
+            fill = palette("card"),
           }, {
             label(
               preview(
@@ -589,7 +585,9 @@ function M.new(model, components, actions, controls, frame)
                 48
               ),
               10,
-              "primary"
+              "primary",
+              false,
+              mainWidth - 16
             ),
             label(
               preview(
@@ -598,7 +596,8 @@ function M.new(model, components, actions, controls, frame)
               ),
               12,
               "on_surface",
-              true
+              true,
+              mainWidth - 16
             ),
             ui.label({
               text = preview(item.text, 96),
@@ -606,16 +605,14 @@ function M.new(model, components, actions, controls, frame)
               fontSize = 11,
               height = 28,
               maxLines = 2,
+              maxWidth = mainWidth - 16,
               color = "on_surface_variant",
             }),
           })
         )
       end
       table.insert(body, ui.spacer({ key = "notifications-spacer", flexGrow = 1 }))
-      table.insert(
-        body,
-        ui.column({ key = "notifications", gap = 6, height = 104, clip = true }, cards)
-      )
+      table.insert(body, ui.column({ key = "notifications", gap = 6, height = 104 }, cards))
     end
     if showTimeline and not model.confirmWifi and not model.hotspotMenu then
       table.insert(side, ui.spacer({ key = "timeline-spacer", flexGrow = 1 }))
@@ -623,17 +620,14 @@ function M.new(model, components, actions, controls, frame)
     end
     local content = {
       ui.column(
-        { key = "content", gap = 8, width = mainWidth, height = geometry.pageHeight, clip = true },
+        { key = "content", gap = 8, width = mainWidth, height = geometry.pageHeight },
         body
       ),
     }
     if sidebar then
       table.insert(
         content,
-        ui.column(
-          { key = "sidebar", width = 260, height = geometry.pageHeight, gap = 8, clip = true },
-          side
-        )
+        ui.column({ key = "sidebar", width = 260, height = geometry.pageHeight, gap = 8 }, side)
       )
     end
     renderFrame(header, content)

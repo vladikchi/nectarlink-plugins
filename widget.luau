@@ -1,6 +1,6 @@
 --!nonstrict
 -- Compact nl.snapshot view and panel launcher; no HTTP or credentials.
-local ui = require("./ui/compat.luau").new(ui, noctalia.getColor)
+local palette = require("./ui/palette.luau")
 local snapshot = nil
 local lastView = nil
 local lastRaw = nil
@@ -29,7 +29,7 @@ local function render()
       break
     end
   end
-  local color = phone and "on_surface" or "muted_border"
+  local color = phone and "on_surface" or palette("muted_border")
   -- Include orientation and settings in the signature so only visible changes redraw.
   local fields = {
     phone ~= nil,
@@ -41,6 +41,7 @@ local function render()
     setting("show_percentage", true),
     setting("show_charging", true),
     setting("show_name", false),
+    color,
   }
   for i, v in ipairs(fields) do
     local s = tostring(v)
@@ -60,12 +61,20 @@ local function render()
     if setting("show_percentage", true) then
       table.insert(
         children,
-        ui.label({ text = tostring(phone.battery.level) .. "%", color = color })
+        ui.label({
+          text = tostring(phone.battery.level) .. "%",
+          color = color,
+          maxWidth = 48,
+          maxLines = 1,
+        })
       )
     end
   end
   if phone and setting("show_name", false) and not barWidget.isVertical() then
-    table.insert(children, ui.label({ text = phone.name, maxLines = 1, color = color }))
+    table.insert(
+      children,
+      ui.label({ text = phone.name, maxLines = 1, maxWidth = 160, color = color })
+    )
   end
   barWidget.render(
     (barWidget.isVertical() and ui.column or ui.row)({ gap = 5, align = "center" }, children)

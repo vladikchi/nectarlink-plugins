@@ -1,6 +1,6 @@
 --!nonstrict
 -- Pages and confirmations share model-owned drafts and navigation without copying them.
-local ui = require("./compat.luau").new(ui, noctalia.getColor)
+local palette = require("./palette.luau")
 local M = {}
 function M.new(model, components, actions, items)
   local geometry = require("./components.luau").layout
@@ -16,13 +16,14 @@ function M.new(model, components, actions, items)
   local confirmAction = actions.confirmAction
   local dispatchPageAction = actions.dispatchPageAction
   local renderPageItems = items.render
-  local function renderConfirmation(add, online)
+  local function renderConfirmation(add, online, width)
     add(
       label(
         noctalia.tr("confirm.title", { action = model.pendingAction.title }),
         14,
         "primary",
-        true
+        true,
+        width - 12
       )
     )
     add(ui.label({
@@ -30,10 +31,11 @@ function M.new(model, components, actions, items)
       fontFamily = "sans-serif",
       height = 68,
       maxLines = 3,
+      maxWidth = width - 12,
       fontSize = 13,
       color = "on_surface",
     }))
-    add(label(noctalia.tr("confirm.target"), 12))
+    add(label(noctalia.tr("confirm.target"), 12, "on_surface", false, width - 12))
     add(ui.row({ gap = 8 }, {
       smallButton(noctalia.tr("common.cancel"), function()
         model.pendingAction = nil
@@ -62,7 +64,6 @@ function M.new(model, components, actions, items)
         width = width - 12,
         height = 350,
         padding = 4,
-        clip = true,
         radius = 10,
         align = "center",
         justify = "center",
@@ -93,6 +94,7 @@ function M.new(model, components, actions, items)
         fontSize = 14,
         height = 220,
         maxLines = 10,
+        maxWidth = width - 12,
         color = "on_surface",
       }))
       add(ui.spacer({ flexGrow = 1 }))
@@ -482,7 +484,7 @@ function M.new(model, components, actions, items)
     end
     add(renderPageHeading(phone, online, width, refresh))
     if model.pendingAction then
-      renderConfirmation(add, online)
+      renderConfirmation(add, online, width)
     elseif model.page == "guide" then
       local tabs = {}
       for i, title in ipairs({
@@ -597,7 +599,7 @@ function M.new(model, components, actions, items)
         },
       }
       for _, note in ipairs(notes[model.guideTopic]) do
-        add(pageNote(note[1], note[2], note[3], 88))
+        add(pageNote(note[1], note[2], note[3], 88, width - 12))
       end
     elseif model.detail then
       renderDetailPage(add, width)
@@ -634,7 +636,8 @@ function M.new(model, components, actions, items)
             errorText
               or (failed and noctalia.tr("pages.retry_hint") or noctalia.tr("pages.loading_hint")),
             failed and "wifi" or "device-mobile",
-            88
+            88,
+            width - 12
           )
         )
       elseif not newSms then
@@ -650,9 +653,8 @@ function M.new(model, components, actions, items)
       padding = 6,
       align = "start",
       justify = "start",
-      clip = true,
       radius = 10,
-      fill = "card/0.5",
+      fill = palette("card", 0.5),
     }, rows)
   end
   return { render = sidebarPage }

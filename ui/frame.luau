@@ -1,6 +1,6 @@
 --!nonstrict
 -- Frame and navigation for the fixed 860x470 panel.
-local ui = require("./compat.luau").new(ui, noctalia.getColor)
+local palette = require("./palette.luau")
 local M = {}
 function M.new(model, components, actions)
   local geometry = require("./components.luau").layout
@@ -66,7 +66,7 @@ function M.new(model, components, actions)
           height = geometry.pageHeight,
           radius = 12,
           align = "center",
-          fill = "card/0.6",
+          fill = palette("card", 0.6),
         }, nav)
       )
     end
@@ -77,13 +77,9 @@ function M.new(model, components, actions)
       gap = 6,
       padding = 3,
       align = "start",
-      clip = true,
     }, {
       header,
-      ui.row(
-        { key = "dashboard", width = 822, gap = 10, height = geometry.pageHeight, clip = true },
-        content
-      ),
+      ui.row({ key = "dashboard", width = 822, gap = 10, height = geometry.pageHeight }, content),
     })
     panel.render(model.renderedTree)
   end
@@ -93,6 +89,8 @@ function M.new(model, components, actions)
       ui.glyph({ name = "device-mobile", size = 20, color = "primary" }),
       ui.label({
         text = "NectarLink",
+        maxWidth = 600,
+        maxLines = 1,
         fontFamily = "sans-serif",
         fontSize = 16,
         fontWeight = "bold",

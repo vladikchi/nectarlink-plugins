@@ -364,6 +364,14 @@ assert(
 assert(keyed("device").props.align == "center")
 assert(keyed("device").props.width == keyed("content").props.width)
 assert(keyed("phone-preview").props.height == 92 and keyed("phone-battery").props.height == 92)
+for _, key in ipairs({ "screen", "files", "clipboard", "ring", "camera", "webcam", "typing" }) do
+  local card = keyed(key)
+  if card then
+    local text = card.children[#card.children]
+    assert(text.props.maxWidth == card.props.width - 16, "tile text must fit its own padding")
+  end
+end
+assert(keyed("notice-long").children[3].props.maxWidth == keyed("content").props.width - 16)
 assert(
   keyed("phone-preview").props.height + 2 * keyed("device").props.padding
     <= keyed("device").props.height

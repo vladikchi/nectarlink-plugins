@@ -1,7 +1,7 @@
 --!nonstrict
 -- Panel controller: device selection, navigation, drafts and Noctalia entry points.
 -- ui/*.luau builds the interface; only the service handles HTTP and credentials.
-local ui = require("./ui/compat.luau").new(ui, noctalia.getColor)
+local palette = require("./ui/palette.luau")
 local model = {
   -- snapshot is service input; all other fields are local UI state.
   snapshot = { state = "unconfigured", devices = {} },
@@ -360,7 +360,7 @@ function onTileHover(state, key)
         model.appHoverNodes[old].props.fill = "transparent"
       end
       if nextHover then
-        model.appHoverNodes[nextHover].props.fill = ui.colorValue("raised")
+        model.appHoverNodes[nextHover].props.fill = palette("raised")
       end
       panel.render(model.renderedTree)
     else

@@ -1,7 +1,7 @@
 --!nonstrict
 -- Shared UI elements; no HTTP, credentials or independent phone state.
 -- panel.luau owns model; only explicit click handlers call send.
-local ui = require("./compat.luau").new(ui, noctalia.getColor)
+local palette = require("./palette.luau")
 local M = {}
 local geometry = {
   panelWidth = 860,
@@ -144,7 +144,7 @@ function M.new(model, send)
     return cut and (text:sub(1, cut - 1) .. "…") or text
   end
 
-  local function label(text, size, color, bold)
+  local function label(text, size, color, bold, width)
     return ui.label({
       text = preview(text, 96),
       height = math.ceil((size or 12) * 1.4),
@@ -153,6 +153,7 @@ function M.new(model, send)
       color = color or "on_surface",
       fontWeight = bold and "bold" or nil,
       maxLines = 1,
+      maxWidth = width or 244,
     })
   end
 
@@ -185,7 +186,7 @@ function M.new(model, send)
         ui.spacer({ flexGrow = 1 }),
         ui.column(
           { key = "page-number", width = 40, height = 28, align = "center", justify = "center" },
-          { label(tostring(index), 12, "on_surface_variant") }
+          { label(tostring(index), 12, "on_surface_variant", false, 40) }
         ),
         ui.spacer({ flexGrow = 1 }),
         ui.button({
@@ -202,41 +203,41 @@ function M.new(model, send)
     )
   end
 
-  local function pageNote(title, text, glyph, height)
+  local function pageNote(title, text, glyph, height, width)
     return ui.row({
       height = height or 72,
       gap = 10,
       padding = 10,
       radius = 10,
-      clip = true,
-      fill = "card",
+      fill = palette("card"),
     }, {
       ui.glyph({ name = glyph or "info-circle", size = 20, color = "primary" }),
-      ui.column({ gap = 4, flexGrow = 1, clip = true }, {
-        label(title, 13, "on_surface", true),
+      ui.column({ gap = 4, flexGrow = 1 }, {
+        label(title, 13, "on_surface", true, width - 50),
         ui.label({
           text = text,
           fontFamily = "sans-serif",
           fontSize = 12,
           height = (height or 72) - 36,
           maxLines = 3,
+          maxWidth = width - 50,
           color = "on_surface_variant",
         }),
       }),
     })
   end
 
-  local function badge(text, glyph)
+  local function badge(text, glyph, width)
     return ui.row({
       gap = 4,
       align = "center",
       paddingH = 6,
       paddingV = 3,
       radius = 10,
-      fill = "raised",
+      fill = palette("raised"),
     }, {
       ui.glyph({ name = glyph, size = 14, color = "on_surface_variant" }),
-      label(text, 11, "on_surface_variant"),
+      label(text, 11, "on_surface_variant", false, (width or 244) - 30),
     })
   end
 
@@ -247,11 +248,10 @@ function M.new(model, send)
       padding = 8,
       radius = 12,
       width = width or model.tileWidth,
-      clip = true,
       height = 68,
       opacity = enabled and 1 or 0.48,
-      fill = (active or model.hovered == key) and "primary/0.18" or "card",
-      border = active and "primary/0.5" or "card",
+      fill = (active or model.hovered == key) and "primary/0.18" or palette("card"),
+      border = active and "primary/0.5" or palette("card"),
       borderWidth = 1,
       tooltip = reason or text,
       onHover = "onTileHover",
@@ -278,6 +278,7 @@ function M.new(model, send)
         fontSize = 11,
         fontWeight = "bold",
         maxLines = 2,
+        maxWidth = (width or model.tileWidth) - 16,
         color = "on_surface",
       }),
     })

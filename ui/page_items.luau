@@ -1,6 +1,6 @@
 --!nonstrict
 -- Lists, grids and pagination: node construction and explicit callbacks only.
-local ui = require("./compat.luau").new(ui, noctalia.getColor)
+local palette = require("./palette.luau")
 local M = {}
 local function finite(value)
   return type(value) == "number" and value == value and math.abs(value) <= 9007199254740991
@@ -154,29 +154,26 @@ function M.new(model, components, actions)
         if model.page == "photos" then
           table.insert(
             children,
-            ui.row(
-              { width = imageSide, height = 128, clip = true, align = "center", justify = "center" },
-              {
-                type(item.thumbnailPath) == "string"
-                    and ui.image({
-                      path = item.thumbnailPath,
-                      width = imageSide,
-                      height = 128,
-                      fit = "cover",
-                      radius = 6,
-                    })
-                  or ui.column({
+            ui.row({ width = imageSide, height = 128, align = "center", justify = "center" }, {
+              type(item.thumbnailPath) == "string"
+                  and ui.image({
+                    path = item.thumbnailPath,
                     width = imageSide,
                     height = 128,
-                    align = "center",
-                    justify = "center",
-                    fill = "raised",
+                    fit = "cover",
                     radius = 6,
-                  }, {
-                    ui.glyph({ name = "photo", size = 28, color = "on_surface_variant" }),
-                  }),
-              }
-            )
+                  })
+                or ui.column({
+                  width = imageSide,
+                  height = 128,
+                  align = "center",
+                  justify = "center",
+                  fill = palette("raised"),
+                  radius = 6,
+                }, {
+                  ui.glyph({ name = "photo", size = 28, color = "on_surface_variant" }),
+                }),
+            })
           )
         elseif model.page == "apps" then
           table.insert(
@@ -216,7 +213,6 @@ function M.new(model, components, actions)
             ui.column({
               width = imageSide,
               height = 20,
-              clip = true,
               align = model.page == "apps" and "center" or "start",
               justify = "center",
             }, {
@@ -234,7 +230,7 @@ function M.new(model, components, actions)
         if model.page == "deck" and cellHeight >= 76 then
           table.insert(
             children,
-            ui.column({ width = imageSide, height = 16, clip = true, align = "start" }, {
+            ui.column({ width = imageSide, height = 16, align = "start" }, {
               ui.label({
                 text = preview(subtitle, 26),
                 maxWidth = imageSide,
@@ -255,15 +251,15 @@ function M.new(model, components, actions)
             height = cellHeight,
             gap = 2,
             padding = 4,
-            clip = true,
             radius = 8,
             align = model.page == "apps" and "center" or "start",
             justify = model.page == "apps" and "center" or "start",
             tooltip = title .. (subtitle ~= "" and (" · " .. subtitle) or ""),
             onClick = itemClick,
             onHover = model.page == "apps" and "onTileHover" or nil,
-            fill = model.page == "apps" and (model.hovered == appKey and "raised" or "transparent")
-              or "card",
+            fill = model.page == "apps"
+                and (model.hovered == appKey and palette("raised") or "transparent")
+              or palette("card"),
           }, children)
         )
         if model.page == "apps" then
@@ -273,6 +269,8 @@ function M.new(model, components, actions)
         local glyph = model.page == "calls"
             and (item.subtitle == "outgoing" and "arrow-up-right" or "arrow-down-left")
           or (model.page == "apps" and "apps" or "message")
+        -- Reserve the icon, padding, gaps and optional timestamp explicitly.
+        local textWidth = width - 62 - (finite(item.date) and noctalia.formatTime and 94 or 0)
         local children = {
           ui.column({
             width = 28,
@@ -288,9 +286,9 @@ function M.new(model, components, actions)
               color = model.page == "calls" and item.subtitle == "missed" and "error" or "primary",
             }),
           }),
-          ui.column({ gap = 1, flexGrow = 1, clip = true }, {
-            label(preview(title, 54), 12, "on_surface", true),
-            label(preview(subtitle, 72), 11, "on_surface_variant"),
+          ui.column({ gap = 1, flexGrow = 1 }, {
+            label(preview(title, 54), 12, "on_surface", true, textWidth),
+            label(preview(subtitle, 72), 11, "on_surface_variant", false, textWidth),
           }),
         }
         if finite(item.date) and noctalia.formatTime then
@@ -299,7 +297,9 @@ function M.new(model, components, actions)
             label(
               noctalia.formatTime("%d.%m %H:%M", math.floor(item.date / 1000)),
               10,
-              "on_surface_variant"
+              "on_surface_variant",
+              false,
+              86
             )
           )
         end
@@ -315,9 +315,8 @@ function M.new(model, components, actions)
           gap = 8,
           padding = 3,
           height = 40,
-          clip = true,
           radius = 9,
-          fill = "card",
+          fill = palette("card"),
           tooltip = model.page == "apps" and noctalia.tr("apps.open_window") or title,
           onClick = itemClick,
         }, children))
@@ -339,7 +338,6 @@ function M.new(model, components, actions)
             height = cellHeight,
             align = "start",
             justify = "start",
-            clip = true,
           }, cells)
         )
       end
@@ -350,7 +348,6 @@ function M.new(model, components, actions)
         height = gridRows * cellHeight + (gridRows - 1) * 6,
         align = "start",
         justify = "start",
-        clip = true,
       }, lines))
     end
     if #items == 0 then
