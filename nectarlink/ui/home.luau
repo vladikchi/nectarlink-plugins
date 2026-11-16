@@ -145,21 +145,135 @@ function M.new(model, components, actions, controls, frame)
     local mainWidth = context.mainWidth
     local header = context.header
     local body = {}
-    if not ready then
-      local code = model.snapshot.error
-        or (
-          model.snapshot.state == "unconfigured" and "credentials_missing"
-          or model.snapshot.state == "unauthorized" and "unauthorized"
-          or "api_unavailable"
+    -- First connection needs instructions, not a dashboard of disabled actions.
+    -- Known offline phones still use the normal dashboard below.
+    if ready and phone then
+      model.connectedOnce = true
+    end
+    if (not ready and not model.connectedOnce) or (ready and not phone) then
+      local width = geometry.panelWidth
+        - geometry.hostPadding * 2
+        - geometry.framePadding * 2
+        - (setting("panel_navigation") and geometry.navigationSpace or 0)
+      local reason = ready and "no_devices" or model.snapshot.error or "api_unavailable"
+      local known = {
+        credentials_missing = true,
+        credentials_invalid = true,
+        api_unavailable = true,
+        unauthorized = true,
+        auth_changed = true,
+        unsupported = true,
+        invalid_response = true,
+        permission = true,
+        timeout = true,
+      }
+      if reason ~= "no_devices" and not known[reason] then
+        reason = "api_unavailable"
+      end
+      local rows = {
+        label(noctalia.tr("setup.title"), 18, "on_surface", true, width - 32),
+        ui.label({
+          text = noctalia.tr("setup.intro"),
+          fontSize = 12,
+          maxWidth = width - 32,
+          maxLines = 2,
+          height = 36,
+          color = "on_surface_variant",
+        }),
+      }
+      for _, key in ipairs({ "install", "api", "pair" }) do
+        table.insert(
+          rows,
+          ui.label({
+            text = noctalia.tr("setup." .. key),
+            fontSize = 13,
+            maxWidth = width - 32,
+            maxLines = 2,
+            height = 38,
+          })
         )
-      local title, text = components.failure(code)
+      end
+      table.insert(
+        rows,
+        ui.label({
+          key = "setup-status",
+          text = noctalia.tr("setup." .. reason),
+          fontSize = 12,
+          color = "primary",
+          maxWidth = width - 32,
+          maxLines = 2,
+          height = 38,
+        })
+      )
+      -- Keep a technical reason available without making it the main explanation.
+      if not ready then
+        local title, text = components.failure(model.snapshot.error or "api_unavailable")
+        table.insert(
+          rows,
+          ui.label({
+            key = "connection-error",
+            text = title,
+            tooltip = text,
+            fontSize = 10,
+            color = "on_surface_variant",
+            maxWidth = width - 32,
+            maxLines = 1,
+          })
+        )
+      end
+      table.insert(rows, ui.spacer({ flexGrow = 1 }))
+      table.insert(
+        rows,
+        ui.row({ gap = 8, height = 32 }, {
+          components.smallButton(noctalia.tr("setup.instructions"), function()
+            send("open_fork")
+          end),
+          components.smallButton(noctalia.tr("setup.open"), function()
+            send("open")
+          end),
+          components.smallButton(noctalia.tr("setup.check"), function()
+            send("refresh")
+          end),
+        })
+      )
+      table.insert(
+        rows,
+        ui.label({
+          text = noctalia.tr("setup.source_note"),
+          fontSize = 10,
+          color = "on_surface_variant",
+          maxWidth = width - 32,
+          maxLines = 2,
+          height = 30,
+        })
+      )
+      renderFrame(
+        header,
+        {
+          ui.column(
+            {
+              key = "connection-setup",
+              width = width,
+              height = geometry.pageHeight,
+              padding = 16,
+              gap = 6,
+              radius = 12,
+              fill = palette("card"),
+            },
+            rows
+          ),
+        }
+      )
+      return
+    end
+    if not ready then
+      local title, text = components.failure(model.snapshot.error or "api_unavailable")
       table.insert(
         body,
         ui.label({
           key = "connection-error",
           text = title .. "\n" .. text,
           tooltip = text,
-          fontFamily = "sans-serif",
           fontSize = 12,
           maxLines = 3,
           maxWidth = mainWidth,

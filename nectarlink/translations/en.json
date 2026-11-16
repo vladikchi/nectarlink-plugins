@@ -1,4 +1,25 @@
 {
+  "setup": {
+    "title": "Connect NectarLink",
+    "intro": "The plugin is installed. Phone features need the separate NectarLink application with this integration's extended API.",
+    "install": "1. Install and start the extended-API NectarLink fork.",
+    "api": "2. In the application's settings, enable Local automation API.",
+    "pair": "3. Add your phone in NectarLink and confirm pairing on both devices.",
+    "instructions": "How to install",
+    "open": "Open application",
+    "check": "Check connection",
+    "source_note": "Installation help opens the fork's source code and build instructions, not an installer. NixOS installation still needs verification.",
+    "credentials_missing": "Connection is not configured yet. Start the application and enable its API. If already enabled, check the user profile and file permissions.",
+    "credentials_invalid": "Connection settings could not be read correctly. Check the application and profile; do not delete your profile or copy someone else's token.",
+    "api_unavailable": "Cannot reach the application. Check that it is running, then check the connection again.",
+    "unauthorized": "The application rejected authorization. Make sure both programs run as the same user with the same profile, then check again.",
+    "auth_changed": "Connection settings changed. Checking the new connection; check the phone before retrying any previously pending action.",
+    "no_devices": "Application connected, but no phones were returned. Add or check your phone in NectarLink.",
+    "unsupported": "This API route is unavailable. Check that the extended-API fork is running, not an ordinary upstream build.",
+    "invalid_response": "The application returned an incompatible response. Check the application build using the installation help.",
+    "permission": "The application denied access. Check feature permissions and settings; this response alone does not identify the cause.",
+    "timeout": "Connection check timed out. Check that the application is running, then try checking again."
+  },
   "settings": {
     "apps_display": "Apps: grid display",
     "apps_icons": "Icons only",

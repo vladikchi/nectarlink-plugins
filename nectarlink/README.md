@@ -15,7 +15,7 @@ data is shown. The catalog thumbnail uses the official Noctalia thumbnail genera
 | Field | Value |
 | --- | --- |
 | ID | `vladikchi/nectarlink` |
-| Version | `0.16.2` |
+| Version | `0.17.0` |
 | Entries | Bar widget: `phone`; panel: `controls`; service: `connection` |
 | License | GPL-3.0-or-later; see [LICENSE](LICENSE) |
 
@@ -58,6 +58,16 @@ Niri variant exists, but is **not distributed by that branch**. Clean-machine
 end-to-end installation has not yet been verified.
 
 ## Usage
+
+On first connection, Home shows three setup steps and a connection-specific hint
+instead of disabled dashboard controls. **How to install** opens the fork's source
+and build instructions (not an installer); **Open application** launches it only
+on click; **Check connection** uses existing read-only refresh requests. A known
+offline phone keeps the normal dashboard. After a successful device connection,
+a temporary API outage shows a compact error instead of restarting setup during
+that panel runtime. No setup flag is persisted and no device action is replayed.
+The setup card is available in English and Russian; the rest of the Russian UI
+translation is still incomplete. NixOS application installation is not yet verified.
 
 For a normal download through Noctalia, open **Settings → Plugins → Sources →
 Add source**, choose **Git**, and enter
@@ -322,6 +332,7 @@ noctalia plugins lint .
 | `tests/test_navigation_cache.lua` | Immediate restoration, filters, phone/auth isolation and cache budgets. |
 | `tests/test_widget.lua` | Battery, name, orientation, offline visibility and settings. |
 | `tests/test_compat.lua` | Legacy/modern palette lookup, alpha, bounded text and API 32 constructor contract. |
+| `tests/test_setup.lua` | First-connection guidance, error reasons, explicit buttons, height budget and return to normal/offline views. |
 | `tests/test_warmup.lua` | Bounded Home warmup without actions or continuous hidden polling. |
 | `tests/test_portable.lua` | Detached argv, special characters in paths, relative-path rejection and launch failure. |
 | `tests/test_optimizations.lua` | Exactly-once HTTP, token rotation and decode/copy counters. |
