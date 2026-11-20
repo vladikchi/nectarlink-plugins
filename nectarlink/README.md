@@ -7,15 +7,21 @@ not a release endorsed by the NectarLink or Noctalia teams.
 
 ![NectarLink Home panel in Noctalia](screenshot.webp)
 
-Native Noctalia 5.5 rendering of 0.16.1 with synthetic demo data; no personal phone
-data is shown. The catalog thumbnail uses the official Noctalia thumbnail generator.
+Dashboard captured in Noctalia 5.5 with demo data.
+
+<details>
+<summary>Plugin Store preview</summary>
+
+![NectarLink Plugin Store thumbnail](thumbnail.webp)
+
+</details>
 
 ## Plugin
 
 | Field | Value |
 | --- | --- |
 | ID | `vladikchi/nectarlink` |
-| Version | `0.17.0` |
+| Version | `0.17.1` |
 | Entries | Bar widget: `phone`; panel: `controls`; service: `connection` |
 | License | GPL-3.0-or-later; see [LICENSE](LICENSE) |
 
@@ -39,35 +45,27 @@ the selected NectarLink binary supports the extended API.
 
 ### Obtain the application
 
-Use [vladikchi/nectarlink-noctalia, branch `noctalia`](https://github.com/vladikchi/nectarlink-noctalia/tree/noctalia).
-That repository publishes **Linux source code, not a ready integration installer**.
-Download or clone that branch, install the build dependencies and build using its
-README, launch the resulting binary, pair the phone, and enable the local API.
-Then enable this plugin. GitHub's source ZIP is also source code, not an executable.
+Follow the [NectarLink for Noctalia installation guide](https://github.com/vladikchi/nectarlink-noctalia/tree/noctalia).
+Use the fork's AppImage when published, not GitHub's source ZIP or the original
+NectarLink installer. Start the app, pair your phone if necessary and enable
+**Local automation API**. To open the AppImage directly from the plugin, set its
+full path in the plugin's **NectarLink executable** setting.
 
-The upstream Download/Latest release links and `install.sh` are **not substitutes
-for building this fork**: they may install a build without the required extensions.
 The plugin needs `/v1/page`, `/v1/page-action`, `/v1/sessions`, `/v1/session`,
 `/v1/phone-toggle`, `/v1/type`, `/v1/camera` and `/v1/ring`, in addition to device,
 notification and timeline reads. An API token alone does not prove compatibility.
-Disable the application's upstream auto-updater manually if it would replace the
-fork with an incompatible upstream build.
-
-The published branch retains the original application Island. A separate local
-Niri variant exists, but is **not distributed by that branch**. Clean-machine
-end-to-end installation has not yet been verified.
 
 ## Usage
 
 On first connection, Home shows three setup steps and a connection-specific hint
-instead of disabled dashboard controls. **How to install** opens the fork's source
-and build instructions (not an installer); **Open application** launches it only
+instead of disabled dashboard controls. **How to install** opens the fork's
+installation guide; **Open application** launches it only
 on click; **Check connection** uses existing read-only refresh requests. A known
 offline phone keeps the normal dashboard. After a successful device connection,
 a temporary API outage shows a compact error instead of restarting setup during
 that panel runtime. No setup flag is persisted and no device action is replayed.
 The setup card is available in English and Russian; the rest of the Russian UI
-translation is still incomplete. NixOS application installation is not yet verified.
+translation is still incomplete.
 
 For a normal download through Noctalia, open **Settings → Plugins → Sources →
 Add source**, choose **Git**, and enter
