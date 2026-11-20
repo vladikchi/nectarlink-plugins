@@ -8,7 +8,7 @@
     "instructions": "How to install",
     "open": "Open application",
     "check": "Check connection",
-    "source_note": "Installation help opens the fork's source code and build instructions, not an installer. NixOS installation still needs verification.",
+    "source_note": "How to install opens the guide for NectarLink for Noctalia.",
     "credentials_missing": "Connection is not configured yet. Start the application and enable its API. If already enabled, check the user profile and file permissions.",
     "credentials_invalid": "Connection settings could not be read correctly. Check the application and profile; do not delete your profile or copy someone else's token.",
     "api_unavailable": "Cannot reach the application. Check that it is running, then check the connection again.",

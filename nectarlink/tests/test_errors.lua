@@ -108,7 +108,7 @@ noctalia.runAsync = function(...)
   local argv = ...
   assert(
     argv[1] == "xdg-open"
-      and argv[2] == "https://github.com/vladikchi/nectarlink-noctalia"
+      and argv[2] == "https://github.com/vladikchi/nectarlink-noctalia/tree/noctalia"
       and #argv == 2
   )
   launches = launches + 1

@@ -436,14 +436,13 @@ noctalia.state.watch("nl.command", function(raw)
     launch(nil)
   elseif cmd.action == "open_fork" then
     -- Explicit click and fixed URL only; no downloads, installation or shell.
-    if
-      not noctalia.runAsync({ "xdg-open", "https://github.com/vladikchi/nectarlink-noctalia" })
-    then
+    local url = "https://github.com/vladikchi/nectarlink-noctalia/tree/noctalia"
+    if not noctalia.runAsync({ "xdg-open", url }) then
       noctalia.notifyError(
         "NectarLink",
         noctalia.tr(
           "notifications.browser_failed",
-          { url = "https://github.com/vladikchi/nectarlink-noctalia" }
+          { url = url }
         )
       )
     end
