@@ -255,9 +255,11 @@ clean-machine installation, every Android permission combination or a full secur
 audit.
 
 **Niri / Island:** the ordinary public fork preserves the upstream Island behavior.
-An invisible idle Island was observed intercepting clicks on Niri 26.04. A separate
-local application variant unmaps it, at the cost of losing its manually chosen
-position after idle; that variant is not published by the linked branch. A narrow
+An invisible idle Island was observed intercepting clicks on Niri 26.04. The separate
+local `nectarlink_common` variant combines the extended API with the idle-window
+workaround. It can lose the manually chosen position after idle and is not
+published by the linked branch. The Niri-only `nectarlink_niri` project has the
+workaround but does not provide this plugin's extended API. A narrow
 floating-window rule can help placement but does not fix the invisible surface by
 itself. The plugin does not patch or replace Niri. Existing compositor rules and
 application palette files are independent of this plugin.
