@@ -3,6 +3,7 @@ dofile("tests/test_runtime.lua")
 local fixture = { state = "unconfigured", error = "credentials_missing", devices = {} }
 local tree, watcher
 local commands = {}
+local clipboard, copies, clipboardAvailable = nil, 0, true
 ui = setmetatable({}, {
   __index = function(_, kind)
     return function(props, children)
@@ -16,6 +17,12 @@ panel = {
   end,
 }
 noctalia = {
+  copyToClipboard = function(text, mime)
+    assert(mime == "text/plain")
+    copies = copies + 1
+    clipboard = text
+    return clipboardAvailable
+  end,
   getConfig = function()
     return nil
   end,
@@ -61,6 +68,16 @@ for _, child in ipairs(card.children) do
 end
 assert(used <= 398, "setup content exceeds fixed panel height")
 assert(tree.props.width == 828 and tree.props.height == 438)
+assert(copies == 0, "rendering the command must not modify the clipboard")
+local install = "curl -fsSL https://github.com/vladikchi/nectarlink-noctalia/releases/latest/download/install.sh | sh"
+assert(find("text", install))
+local beforeCopy = #commands
+find("key", "copy-install-command").props.onClick()
+assert(copies == 1 and clipboard == install and #commands == beforeCopy)
+assert(find("key", "copy-install-command").props.tooltip == "Copied")
+clipboardAvailable = false
+find("key", "copy-install-command").props.onClick()
+assert(find("key", "copy-install-command").props.tooltip == "Could not copy the command")
 for _, action in ipairs({
   { "How to install", "open_fork" },
   { "Open application", "open" },

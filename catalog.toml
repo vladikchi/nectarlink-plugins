@@ -2,7 +2,7 @@
 [[plugin]]
 id = "vladikchi/nectarlink"
 name = "NectarLink"
-version = "0.17.1"
+version = "0.17.2"
 plugin_api = 32
 author = "vladikchi"
 license = "GPL-3.0-or-later"

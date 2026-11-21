@@ -1,6 +1,8 @@
 --!nonstrict
 -- Home: device card, actions, notifications and timeline.
 local palette = require("./palette.luau")
+local installCommand =
+  "curl -fsSL https://github.com/vladikchi/nectarlink-noctalia/releases/latest/download/install.sh | sh"
 local M = {}
 function M.new(model, components, actions, controls, frame)
   local geometry = require("./components.luau").layout
@@ -189,9 +191,40 @@ function M.new(model, components, actions, controls, frame)
             fontSize = 13,
             maxWidth = width - 32,
             maxLines = 2,
-            height = 38,
+            height = 30,
           })
         )
+        if key == "install" then
+          table.insert(rows, ui.row({
+            key = "setup-install-command",
+            width = width - 32,
+            height = 38,
+            gap = 6,
+            align = "center",
+          }, {
+            ui.label({
+              text = installCommand,
+              fontFamily = "monospace",
+              fontSize = 10,
+              maxWidth = width - 70,
+              maxLines = 2,
+              tooltip = installCommand,
+            }),
+            ui.button({
+              key = "copy-install-command",
+              glyph = model.installCopyStatus == "copied" and "check" or "copy",
+              width = 32,
+              height = 32,
+              variant = "ghost",
+              tooltip = noctalia.tr("setup." .. (model.installCopyStatus or "copy")),
+              onClick = function()
+                local copied = noctalia.copyToClipboard(installCommand, "text/plain")
+                model.installCopyStatus = copied and "copied" or "copy_failed"
+                render()
+              end,
+            }),
+          }))
+        end
       end
       table.insert(
         rows,

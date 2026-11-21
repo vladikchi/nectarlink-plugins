@@ -3,6 +3,9 @@
     "title": "Connect NectarLink",
     "intro": "The plugin is installed. Phone features need the separate NectarLink application with this integration's extended API.",
     "install": "1. Install and start the extended-API NectarLink fork.",
+    "copy": "Copy install command",
+    "copied": "Copied",
+    "copy_failed": "Could not copy the command",
     "api": "2. In the application's settings, enable Local automation API.",
     "pair": "3. Add your phone in NectarLink and confirm pairing on both devices.",
     "instructions": "How to install",
@@ -44,7 +47,7 @@
     "phone": "Phone",
     "settings": "Plugin settings",
     "open_app": "Open NectarLink",
-    "fork_help": "Fork and build instructions (source code, not an installer)",
+    "fork_help": "Install NectarLink for Noctalia",
     "refresh": "Refresh",
     "refresh_page": "Refresh section",
     "previous_page": "Previous page",
@@ -235,7 +238,7 @@
     },
     "unsupported": {
       "title": "API feature unavailable",
-      "body": "Route not found. The extended-API fork is required. The help button opens its source code, not an installer."
+      "body": "Route not found. The extended-API fork is required. The help button opens its installation guide."
     },
     "invalid_response": {
       "title": "Unexpected API response",
@@ -246,6 +249,7 @@
       "body": "Check feature settings and permissions in NectarLink and Android. HTTP 403 alone does not identify the cause."
     },
     "phone_offline": {
+      "title": "Phone is offline",
       "body": "Check the phone connection in NectarLink and its Android permissions. Saved data may be out of date."
     },
     "timeout": {
@@ -341,11 +345,11 @@
     },
     "fork": {
       "title": "Extended-API build required",
-      "body": "The upstream build cannot replace the fork's page/control API. The header book opens the fork: source code and build instructions, not a ready installer."
+      "body": "The upstream build cannot replace the fork's page/control API. The book icon opens the NectarLink for Noctalia installation guide."
     },
     "niri": {
       "title": "Niri: Island intercepts clicks",
-      "body": "The public fork retains the original Island. The idle-unmap workaround exists only in a separate local Niri build. See README for limitations; no compositor replacement is needed."
+      "body": "The Noctalia build retains the original Island. The separate NectarLink for Niri project documents the workaround; no compositor replacement is needed."
     },
     "checks": {
       "title": "Where to start",
