@@ -269,6 +269,8 @@
     "camera_timeout": "No reply to the camera request",
     "ring_timeout": "No reply. Checking the phone state.",
     "action_failed": "Action unconfirmed. Check the phone/PC before retrying.",
+    "action_limit": "Action not sent. Restart the NectarLink app to reset its action limit.",
+    "action_busy": "Action not sent. NectarLink is still handling another action.",
     "another_device": "Another phone is using this session",
     "nothing_playing": "Play a video on the computer first",
     "unavailable": "Feature unavailable with current permissions",

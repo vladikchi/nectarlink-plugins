@@ -43,29 +43,21 @@ Dashboard captured in Noctalia 5.5 with demo data.
 Dependencies are manifest metadata; Noctalia does not install them or verify that
 the selected NectarLink binary supports the extended API.
 
-### Obtain the application
+## Installation
+
+### Install and configure NectarLink
 
 Follow the [NectarLink for Noctalia installation guide](https://github.com/vladikchi/nectarlink-noctalia/tree/noctalia).
-Use the fork's AppImage when published, not GitHub's source ZIP or the original
-NectarLink installer. Start the app, pair your phone if necessary and enable
-**Local automation API**. To open the AppImage directly from the plugin, set its
-full path in the plugin's **NectarLink executable** setting.
+Use a package or an AppImage from the fork, or build the fork from source.
+Do not use the original NectarLink installer. Start the app, pair your phone
+if necessary, then enable **Local automation API** under **Settings → Connection & About**.
+To open an AppImage from the plugin, set its absolute path under **NectarLink executable**.
 
 The plugin needs `/v1/page`, `/v1/page-action`, `/v1/sessions`, `/v1/session`,
 `/v1/phone-toggle`, `/v1/type`, `/v1/camera` and `/v1/ring`, in addition to device,
 notification and timeline reads. An API token alone does not prove compatibility.
 
-## Usage
-
-On first connection, Home shows three setup steps and a connection-specific hint
-instead of disabled dashboard controls. **How to install** opens the fork's
-installation guide; **Open application** launches it only
-on click; **Check connection** uses existing read-only refresh requests. A known
-offline phone keeps the normal dashboard. After a successful device connection,
-a temporary API outage shows a compact error instead of restarting setup during
-that panel runtime. No setup flag is persisted and no device action is replayed.
-The setup card is available in English and Russian; the rest of the Russian UI
-translation is still incomplete.
+### Add the plugin to Noctalia
 
 For a normal download through Noctalia, open **Settings → Plugins → Sources →
 Add source**, choose **Git**, and enter
@@ -79,11 +71,21 @@ separate application or declared dependencies.
 2. Add bar widget `phone` (`vladikchi/nectarlink:phone`) to your chosen bar.
    Left or right click opens panel `controls`. The `connection` service starts
    with the plugin; it is an in-process Noctalia service, not a systemd daemon.
-3. Use the left navigation for Home, Messages, Calls, Photos, Apps, Deck and Guide.
-   The gear opens this plugin's settings, not the application's settings.
-4. Select a phone on Home when several devices are paired. File and clipboard
-   shortcuts are enabled only for a single online phone; choose the recipient in
-   the application when multiple phones exist.
+
+## Usage
+
+On first connection, Home shows setup steps and a connection-specific hint.
+**How to install** opens the fork's guide, **Open application** launches only
+on click, and **Check connection** makes read-only refresh requests. A known
+offline phone keeps the normal dashboard. After a successful connection a
+temporary API outage shows a compact error, not first-run setup. The setup card
+is available in English and Russian; the rest of the Russian UI translation is
+incomplete.
+
+Use the left navigation for Home, Messages, Calls, Photos, Apps, Deck and Guide.
+The gear opens the plugin settings. Select a phone on Home when several are
+paired. File and clipboard shortcuts are enabled only for a single online phone;
+otherwise choose the recipient in the application.
 
 Open or close the panel directly:
 

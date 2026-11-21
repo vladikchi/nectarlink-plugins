@@ -283,6 +283,21 @@ end
 assert(count == 1) -- No automatic resend after an uncertain timeout.
 respond("/v1/page-action", { ok = true, accepted = true })
 assert(latest.pageActionResult == nil and notices[#notices]:find("No confirmation", 1, true))
+for _, failure in ipairs({
+  { "request_limit_restart_required", 409, "Restart the NectarLink app" },
+  { "busy", 409, "still handling another action" },
+  { "uncertain_check_phone", 409, "No confirmation" },
+  { "timeout", 504, "No confirmation" },
+}) do
+  command("page_action", "one", {
+    action = "app",
+    id = "mock.app",
+    request_id = "failure-action-" .. failure[1],
+    confirm = true,
+  })
+  respond("/v1/page-action", { ok = false, error = failure[1] }, false, failure[2])
+  assert(not latest.pageActionBusy and notices[#notices]:find(failure[3], 1, true))
+end
 command("page", "one", { page = "apps", key = "closed-page" })
 command("visible", nil, false)
 respond("/v1/page", { ok = true, items = { { id = "late" } } })

@@ -50,7 +50,7 @@ function M.new(snapshot, requests, clock, visibility, dependencies)
       id = action.id,
       text = action.text,
       recipients = action.recipients,
-    }, function(ok, _, data)
+    }, function(ok, status, data)
       if requestGeneration ~= requests.actions.generation then
         return
       end
@@ -58,7 +58,12 @@ function M.new(snapshot, requests, clock, visibility, dependencies)
       snapshot.pageActionResult = nil
       -- Unconfirmed does not mean unexecuted. Never retry automatically.
       if not ok then
-        noctalia.notifyError("NectarLink", noctalia.tr("notifications.action_failed"))
+        local code = type(data) == "table" and data.error
+        local notice = code == "request_limit_restart_required" and "action_limit"
+          or code == "busy" and "action_busy"
+          or (code == "uncertain_check_phone" or status == 0 or status == 504) and "action_timeout"
+          or "action_failed"
+        noctalia.notifyError("NectarLink", noctalia.tr("notifications." .. notice))
       end
       local kind = ({
         sms = "messages",
