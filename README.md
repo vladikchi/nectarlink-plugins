@@ -1,38 +1,39 @@
-# NectarLink для Noctalia
+# NectarLink for Noctalia
 
-Плагин NectarLink позволяет управлять Android-телефоном с ПК из Noctalia. Через виджет можно проверить заряд, открыть уведомления и историю звонков, отправить SMS, набрать номер или принять входящий вызов. Для работы с самим телефоном можно открыть его экран на ПК и вводить текст с клавиатуры компьютера.
+The NectarLink plugin lets you control an Android phone from your PC through Noctalia. Use the widget to check the battery level or open the panel to read notifications, see recent calls, send SMS, dial a number, or answer an incoming call. You can also mirror the phone's screen and type on the phone with your computer keyboard.
 
-Камеру телефона можно использовать как веб-камеру ПК или запускать отдельно для съёмки фото. Звук можно направить в обе стороны: слушать телефон на компьютере или использовать телефон как динамик ПК. Из той же панели доступны фотографии, отправка файлов и обмен буфером.
+Use the phone as a webcam or open its camera to take a photo. Audio works both ways: listen to phone audio on your PC or use the phone as a speaker for your computer. The same panel gives you access to photos, file sharing, and clipboard sharing.
 
-[NectarLink](https://github.com/thtbee/nectarlink) связывает телефон с компьютером и выполняет эти команды. Плагин добавляет управление в Noctalia, поэтому приложение должно быть запущено. Нужна сборка [NectarLink для Noctalia](https://github.com/vladikchi/nectarlink-noctalia) с расширенным локальным API: в оригинальной сборке нет нужных маршрутов.
+[NectarLink](https://github.com/thtbee/nectarlink) connects the phone to the computer and handles those commands. The plugin provides the controls in Noctalia, so the app needs to be running. Use [NectarLink for Noctalia](https://github.com/vladikchi/nectarlink-noctalia): the upstream build does not include the required local API routes.
 
-![Панель NectarLink в Noctalia с демонстрационными данными](nectarlink/screenshot.webp)
+![NectarLink panel in Noctalia with demo data](nectarlink/screenshot.webp)
 
-## Установка
+## Installation
 
-Нужны Noctalia с **Plugin API 32** и Android-телефон, сопряжённый с NectarLink.
+You need Noctalia with **Plugin API 32** and an Android phone paired with NectarLink.
 
-1. Установите [NectarLink для Noctalia](https://github.com/vladikchi/nectarlink-noctalia#установка-на-linux) на ПК. Запустите приложение, свяжите телефон и включите **Локальный API автоматизации** в разделе **Настройки → Подключение и о программе**. Noctalia и приложение должны работать от одного пользователя.
-2. В Noctalia откройте **Settings → Plugins → Sources → Add source**, выберите **Git** и добавьте адрес `https://github.com/vladikchi/nectarlink-plugins`. Это отдельный источник, а не стандартный каталог Noctalia.
-3. В **Plugin Store** найдите **NectarLink**, добавьте и включите плагин. Затем добавьте на панель виджет `vladikchi/nectarlink:phone` и нажмите на него.
+1. Install [NectarLink for Noctalia](https://github.com/vladikchi/nectarlink-noctalia#installation-on-linux) on the PC. Start the app, pair your phone, and enable **Local automation API** under **Settings → Connection & About**. Run NectarLink and Noctalia as the same user.
+2. In Noctalia, open **Settings → Plugins → Sources → Add source**, choose **Git**, and enter `https://github.com/vladikchi/nectarlink-plugins`. This is a custom source, not part of Noctalia's default catalog.
+3. In the **Plugin Store**, find **NectarLink**, add it, and make sure it is enabled.
+4. In Noctalia settings, open **Panels**, select your panel, and open **Widgets**. Add the NectarLink widget (`vladikchi/nectarlink:phone`), then click it on the bar to open the plugin panel.
 
-Если кнопка **Open application** не находит приложение, укажите в настройке **NectarLink executable** абсолютный путь к AppImage или бинарнику `nectarlink-desktop`.
+If **Open application** cannot find NectarLink, set **NectarLink executable** to the absolute path of the AppImage or `nectarlink-desktop` binary.
 
-## Что можно сделать из панели
+## What you can do from the panel
 
-- **Главная:** выбрать телефон, проверить заряд, прочитать уведомления и посмотреть историю событий. Можно найти телефон звонком, включить его фонарик или режим «Не беспокоить», переключить Wi‑Fi, Bluetooth, точку доступа и режим звонка.
-- **Экран, камера и звук:** открыть экран телефона на ПК, запустить камеру для фото, использовать телефон как веб-камеру. Можно вывести звук телефона на ПК или использовать телефон как динамик компьютера. Поддерживаемое видео с ПК можно открыть на телефоне.
-- **Ввод и обмен данными:** вводить текст с клавиатуры ПК на телефоне, открыть отправку файлов и буфера обмена. Быстрые действия для файлов и буфера доступны, когда онлайн только один телефон.
-- **Сообщения и звонки:** прочитать SMS и чаты из уведомлений, отправить SMS, ответить через активное уведомление, посмотреть историю, набрать номер или управлять активным вызовом.
-- **Фото:** просматривать альбомы и миниатюры, запрашивать передачу оригинала на ПК.
-- **Приложения и Deck:** открывать поддерживаемые приложения телефона на ПК и запускать плитки, уже настроенные в NectarLink.
+- **Home:** select a phone, check its battery, read notifications, and see recent activity. Ring the phone to find it, use the flashlight or Do Not Disturb, and manage Wi-Fi, Bluetooth, hotspot, and ringer mode.
+- **Screen, camera, and audio:** mirror the phone's screen on your PC, open its camera to take a photo, or use it as a webcam. Play phone audio on the PC or use the phone as a PC speaker. You can also open supported video from the PC on the phone.
+- **Typing and sharing:** type on the phone with your PC keyboard, or open NectarLink's file and clipboard sharing tools. The file and clipboard shortcuts are available when exactly one phone is online.
+- **Messages and calls:** read SMS and notification-based chats, send SMS, reply through an active notification, browse call history, dial a number, or manage an active call.
+- **Photos:** browse albums and thumbnails and request the original photo on your PC.
+- **Apps and Deck:** open supported phone apps on the PC and run Deck tiles already configured in NectarLink.
 
-Доступность команд зависит от телефона и разрешений Android. Чаты из уведомлений не показывают полную историю мессенджера. Отправка сообщений, звонки, запрос оригинала фото и отключение Wi‑Fi требуют подтверждения. Если результат команды неизвестен из-за тайм-аута, плагин не отправляет её повторно — сначала проверьте телефон или ПК.
+Available actions depend on the phone and its Android permissions. Notification-based chats are not a full conversation history. Sending messages, making calls, requesting original photos, and turning off Wi-Fi require confirmation. If an action times out, the plugin does not resend it; check the phone or PC before trying again.
 
-## Если панель не подключается
+## If the panel cannot connect
 
-- **Нет связи с приложением:** проверьте, что запущен именно форк NectarLink для Noctalia, локальный API включён и обе программы работают от одного пользователя. Плагин ищет файл API в стандартном профиле `~/.local/share/Nectarlink/`.
-- **Телефон не отображается:** проверьте сопряжение и связь в самом NectarLink. Кнопка **Check connection** в панели обновляет состояние, не отправляя команд телефону.
-- **Телефон виден, но действие недоступно:** проверьте разрешения Android и поддержку выбранной функции.
+- **No connection to the app:** make sure NectarLink for Noctalia is running, its local API is enabled, and both programs run as the same user. The plugin looks for the API file in the default profile at `~/.local/share/Nectarlink/`.
+- **Phone is missing:** check pairing and connectivity in NectarLink. **Check connection** refreshes the panel without sending commands to the phone.
+- **Phone is visible but an action is unavailable:** check Android permissions and whether your phone supports that feature.
 
-[Как работает плагин](nectarlink/README.md) — архитектура, локальный API, кэширование, настройки и тесты.
+[How the plugin works](nectarlink/README.md) — architecture, local API, caching, settings, and tests.
