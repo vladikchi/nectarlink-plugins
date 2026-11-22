@@ -1,7 +1,6 @@
 --!nonstrict
 -- Panel controller: device selection, navigation, drafts and Noctalia entry points.
 -- ui/*.luau builds the interface; only the service handles HTTP and credentials.
-local palette = require("./ui/palette.luau")
 local model = {
   -- snapshot is service input; all other fields are local UI state.
   snapshot = { state = "unconfigured", devices = {} },
@@ -11,8 +10,6 @@ local model = {
   nonce = 0,
   renderedTree = nil,
   appHoverNodes = {},
-  tileWidth = 180,
-  confirmWifi = nil,
   hotspotMenu = nil,
   -- Drafts belong to a device/thread; transport-only acknowledgement never clears them.
   drafts = {},
@@ -20,8 +17,11 @@ local model = {
   draftRevisions = {},
   lastTypeSent = nil,
   pageDrafts = {},
+  pageDraftRevisions = {},
+  actionScope = 0, -- Invalidate click handlers when the panel, phone or credentials change.
+  actionAttempts = { page = 0, control = 0 },
+  actionReceipts = {},
   recipient = "",
-  pendingAction = nil,
   detail = nil,
   detailPart = 0,
   -- Keep offsets and cursors separate: API pages use different pagination schemes.
@@ -33,12 +33,11 @@ local model = {
   before = nil,
   beforeId = nil,
   thread = nil,
+  threadList = { offset = 0, cursors = {} },
   album = nil,
   search = "",
   searchDraft = "",
   guideTopic = 1,
-  dialOpen = false,
-  pageHeight = 398,
   lastCacheEpoch = nil,
   appsSignature = nil,
 }
@@ -53,7 +52,7 @@ local function send(action, device, value)
 end
 local Components = require("./ui/components.luau")
 local geometry = Components.layout
-local components = Components.new(model, send)
+local components = Components.new()
 local activeSession = components.activeSession
 local setting = components.setting
 local appsLayout = components.appsLayout
@@ -68,7 +67,7 @@ local function decode(raw)
 end
 
 local function resetPage()
-  model.dialOpen = false
+  model.actionScope = model.actionScope + 1
   model.pageKey = nil
   model.pageRequested = false
   model.offset = 0
@@ -76,8 +75,8 @@ local function resetPage()
   model.before = nil
   model.beforeId = nil
   model.thread = nil
+  model.threadList = { offset = 0, cursors = {} }
   model.album = nil
-  model.pendingAction = nil
   model.detail = nil
   model.search = ""
   model.searchDraft = ""
@@ -85,38 +84,50 @@ local function resetPage()
   model.pageView = nil
 end
 
-local function loadPage(force)
-  -- Bind each key to its device and filters. A late response for the previous
-  -- page must not replace the current one; force is an explicit read only.
-  if
-    model.page == "home"
-    or model.page == "guide"
-    or not model.selected
-    or model.snapshot.state == "unauthorized"
-    or model.snapshot.state == "unconfigured"
-  then
-    return
-  end
-  if model.page == "messages" and model.thread and model.thread.id == "" then
-    return
-  end
-  local limit = model.page == "messages" and (model.thread and 6 or 7)
-    or (model.page == "calls" and 6 or (model.page == "apps" and appsLayout().limit or nil))
+local function pageQuery(page, thread, nav, limit, album, search)
   local fields = {
-    model.page,
+    page,
     model.selected,
-    model.thread and model.thread.id or "",
-    tostring(model.offset),
-    tostring(model.before),
-    model.beforeId or "",
-    model.album or "",
-    model.search,
+    thread or "",
+    tostring(nav.offset),
+    tostring(nav.before),
+    nav.beforeId or "",
+    album or "",
+    search or "",
     tostring(limit or 0),
   }
   for i, value in ipairs(fields) do
     fields[i] = tostring(#value) .. ":" .. value
   end
-  local key = table.concat(fields)
+  return {
+    key = table.concat(fields), page = page, thread = thread, offset = nav.offset,
+    before = nav.before, before_id = nav.beforeId, limit = limit, album = album, search = search or "",
+  }
+end
+
+local limits = geometry.page.limits
+local function threadsQuery()
+  return pageQuery("messages", nil, model.threadList, limits.messages)
+end
+
+local function loadPage(force)
+  -- Keep exactly one active read. While a thread is selected, the left pane
+  -- uses the bounded presentation cache instead of polling a second endpoint.
+  local page = model.page
+  if page == "home" or page == "guide" or not model.selected
+    or model.snapshot.state == "unauthorized" or model.snapshot.state == "unconfigured" then
+    return
+  end
+  local thread = model.thread and model.thread.id ~= "" and model.thread.id or nil
+  local query
+  if page == "messages" and not thread then
+    query = threadsQuery()
+  else
+    local limit = page == "messages" and limits.thread
+      or (page == "calls" and limits.calls or (page == "apps" and appsLayout().limit or nil))
+    query = pageQuery(page, thread, model, limit, model.album, model.search)
+  end
+  local key = query.key
   if model.pageKey == key and not force and model.pageRequested then
     return
   end
@@ -132,18 +143,27 @@ local function loadPage(force)
     end
     return
   end
-  send("page", model.selected, {
-    key = key,
-    page = model.page,
-    thread = model.thread and model.thread.id or nil,
-    offset = model.offset,
-    before = model.before,
-    before_id = model.beforeId,
-    album = model.album,
-    search = model.search,
-    limit = limit,
-    force = force == true,
-  })
+  query.force = force == true
+  send("page", model.selected, query)
+end
+
+local function threadsView()
+  if not model.selected then return nil end
+  local key = threadsQuery().key
+  local view = model.pageView
+  if view and view.key == key then return view end
+  return memory.saved(key)
+end
+
+local function selectThread(thread, threadList)
+  if not model.opened or model.page ~= "messages" then return end
+  memory.remember(model.pageView)
+  if threadList then model.threadList = threadList end
+  model.thread = thread
+  model.offset, model.before, model.beforeId = 0, nil, nil
+  model.cursors = {}
+  model.detail, model.detailPart = nil, 0
+  render()
 end
 
 local function navigate(value)
@@ -153,6 +173,8 @@ local function navigate(value)
   memory.remember(model.pageView)
   memory.save(model.pageDevice, model.page)
   model.page = value
+  model.hovered = nil
+  model.hotspotMenu = nil
   resetPage()
   memory.restore(model.selected, value)
   if value == "home" or value == "guide" then
@@ -161,32 +183,72 @@ local function navigate(value)
   render()
 end
 
-local function confirmAction(action, id, text, recipients, title)
-  -- Capture the recipient before showing confirmation, not at send time.
-  model.pendingAction = {
-    action = action,
-    id = id,
-    text = text,
-    recipients = recipients,
-    title = title,
-    device = model.selected,
-  }
-  render()
+local actionChannels = {
+  page = { busy = "pageActionBusy", receipt = "pageActionRequestId", command = "page_action" },
+  control = { busy = "controlBusy", receipt = "controlRequestId", command = "phone_toggle" },
+}
+
+local function nowSeconds()
+  return noctalia.nowMs and noctalia.nowMs() / 1000 or os.time()
 end
 
-local function dispatchPageAction(action, id, text, recipients, device)
+local function actionBusy(channel)
+  local pending = model.actionReceipts[channel]
+  -- A command overwritten before the service sees it must not lock the UI
+  -- forever. Expiring the local wait never replays the command.
+  if pending and not pending.received and nowSeconds() - pending.started >= 30 then
+    model.actionReceipts[channel] = nil
+    pending = nil
+  end
+  return model.snapshot[actionChannels[channel].busy] == true or pending ~= nil, pending and pending.kind
+end
+
+local function onlinePhone(device)
+  if not device or model.snapshot.state ~= "ready" then return nil end
+  for _, phone in ipairs(model.snapshot.devices) do
+    if phone.id == device and phone.online == true then return phone end
+  end
+end
+
+local function dispatch(channel, device, payload)
   local requestId = ""
   for _ = 1, 8 do
     requestId = requestId .. string.format("%04x", math.random(0, 65535))
   end
-  send("page_action", device or model.selected, {
-    action = action,
-    id = id,
-    text = text,
-    recipients = recipients,
-    request_id = requestId,
-    confirm = true,
-  })
+  -- Lock synchronously, before Noctalia delivers the click to the service.
+  model.actionAttempts[channel] = model.actionAttempts[channel] + 1
+  model.actionReceipts[channel] = { id = requestId, started = nowSeconds(), kind = payload.action or payload.id }
+  payload.request_id = requestId
+  send(actionChannels[channel].command, device, payload)
+  render()
+  return true
+end
+
+local function bindAction(channel, device)
+  local page, scope, attempt = model.page, model.actionScope, model.actionAttempts[channel]
+  return function(payload)
+    -- A queued callback may belong to an old render, device or connection.
+    if not model.opened or model.selected ~= device or model.page ~= page or model.actionScope ~= scope
+      or model.actionAttempts[channel] ~= attempt or actionBusy(channel) then return false end
+    local phone = onlinePhone(device)
+    if channel == "page" then
+      if payload.action ~= "deck" and not phone then return false end
+      -- The API still needs this explicit-intent flag; it does not imply a dialog.
+      payload.confirm = true
+    else
+      local controls = phone and phone.controls
+      if not setting("panel_controls") or not controls or not controls.allowed
+        or controls.allowed[payload.id] ~= true then return false end
+      local state = controls.state and controls.state[payload.id]
+      if payload.id == "ringer" then
+        if (state ~= "ring" and state ~= "vibrate" and state ~= "silent") or state == payload.mode then return false end
+      elseif payload.id ~= "hotspot" and (type(state) ~= "boolean" or state == payload.on) then
+        return false
+      end
+      model.hotspotMenu = nil
+    end
+    return dispatch(channel, device, payload)
+  end
 end
 -- Explicit dependencies only; modules cannot read controller globals.
 local actions = {
@@ -196,8 +258,10 @@ local actions = {
   end,
   resetPage = resetPage,
   loadPage = loadPage,
-  confirmAction = confirmAction,
-  dispatchPageAction = dispatchPageAction,
+  threadsView = threadsView,
+  selectThread = selectThread,
+  actionBusy = actionBusy,
+  bindAction = bindAction,
   navigate = navigate,
 }
 local items = require("./ui/page_items.luau").new(model, components, actions)
@@ -255,7 +319,7 @@ render = function()
   local function canSession(kind)
     return not model.snapshot.sessionBusy
       and session
-      and (activeSession(session, kind) or (online and session.allowed[kind])) == true
+      and (activeSession(session, kind) or (online and session.allowed and session.allowed[kind])) == true
   end
   if model.snapshot.typeSent and model.snapshot.typeSent ~= model.lastTypeSent then
     model.lastTypeSent = model.snapshot.typeSent
@@ -265,53 +329,15 @@ render = function()
       model.draftRevisions[id] = (model.draftRevisions[id] or 0) + 1
     end
   end
-  if model.selected ~= model.confirmWifi then
-    model.confirmWifi = nil
-  end
   if model.selected ~= model.hotspotMenu then
     model.hotspotMenu = nil
   end
   local unavailable = not ready and noctalia.tr("common.no_connection")
     or (not phone and noctalia.tr("common.connect_phone") or noctalia.tr("common.phone_offline"))
-  local notices = {}
-  if
-    ready
-    and phone
-    and setting("panel_notifications")
-    and model.snapshot.notificationsState == "ready"
-  then
-    for _, item in ipairs(model.snapshot.notifications or {}) do
-      if item.deviceId == phone.id then
-        table.insert(notices, item)
-      end
-    end
-  end
-  -- Match the fixed manifest width, host padding (16 per side), root padding
-  -- (3 per side), optional 42px rail + gap, and 260px right column + gap.
-  local showControls = setting("panel_controls")
-  local showTimeline = ready and phone and setting("panel_timeline")
-  local sidebar = showControls or showTimeline
-  local mainWidth = geometry.panelWidth
-    - geometry.hostPadding * 2
-    - geometry.framePadding * 2
-    - (setting("panel_navigation") and geometry.navigationSpace or 0)
-    - (sidebar and geometry.sidebarSpace or 0)
-  model.tileWidth = math.floor((mainWidth - 30) / 4)
-  mainWidth = model.tileWidth * 4 + 30
-  local header = frame.header()
+  local width = geometry.contentWidth(setting("panel_navigation"))
   if model.page ~= "home" then
-    local width = geometry.panelWidth
-      - geometry.hostPadding * 2
-      - geometry.framePadding * 2
-      - (setting("panel_navigation") and geometry.navigationSpace or 0)
-    renderFrame(header, {
-      ui.column({
-        key = "page-layout-" .. model.page,
-        width = width,
-        height = geometry.pageHeight,
-        align = "start",
-      }, { sidebarPage(phone, online, width) }),
-    })
+    local settingsButton = not setting("panel_navigation") and frame.settingsButton() or nil
+    renderFrame({ sidebarPage(phone, online, width, settingsButton) })
     return
   end
   renderHomePage({
@@ -321,12 +347,7 @@ render = function()
     session = session,
     canSession = canSession,
     unavailable = unavailable,
-    notices = notices,
-    showControls = showControls,
-    showTimeline = showTimeline,
-    sidebar = sidebar,
-    mainWidth = mainWidth,
-    header = header,
+    width = width,
   })
 end
 
@@ -357,10 +378,10 @@ function onTileHover(state, key)
       and (not nextHover or model.appHoverNodes[nextHover])
     then
       if old then
-        model.appHoverNodes[old].props.fill = "transparent"
+        model.appHoverNodes[old].props.fill = components.appTileFill(false)
       end
       if nextHover then
-        model.appHoverNodes[nextHover].props.fill = palette("raised")
+        model.appHoverNodes[nextHover].props.fill = components.appTileFill(true)
       end
       panel.render(model.renderedTree)
     else
@@ -375,9 +396,17 @@ local function acceptSnapshot(raw)
     return
   end
   model.snapshot = value
+  for name, channel in pairs(actionChannels) do
+    local pending = model.actionReceipts[name]
+    if pending then
+      if value[channel.receipt] == pending.id then pending.received = true end
+      if pending.received and value[channel.busy] ~= true then model.actionReceipts[name] = nil end
+    end
+  end
   if model.snapshot.cacheEpoch ~= model.lastCacheEpoch then
     -- Auth changes and service resets invalidate the read key, not the draft.
     model.lastCacheEpoch = model.snapshot.cacheEpoch
+    model.actionReceipts = {}
     memory.clear()
     resetPage()
     model.pageKey = nil
@@ -410,7 +439,6 @@ end)
 function onOpen()
   model.opened = true
   model.hovered = nil
-  model.confirmWifi = nil
   model.hotspotMenu = nil
   acceptSnapshot(noctalia.state.get("nl.snapshot") or latestRaw)
   model.pageKey = nil
@@ -423,13 +451,17 @@ function onClose()
   memory.remember(model.pageView)
   memory.save(model.pageDevice, model.page)
   model.opened = false
+  model.actionScope = model.actionScope + 1
   model.hovered = nil
   model.pageKey = nil
-  model.pendingAction = nil
   model.detail = nil
+  model.hotspotMenu = nil
   send("visible", nil, false)
 end
 
 function onConfigChanged()
+  if not setting("panel_controls") then
+    model.hotspotMenu = nil
+  end
   render()
 end

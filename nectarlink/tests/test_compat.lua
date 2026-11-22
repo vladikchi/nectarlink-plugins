@@ -12,6 +12,9 @@ local host = setmetatable({}, {
 local old = { surface_variant = "#123456", outline = "#abcdef" }
 local new =
   { surface_container = "#223344", surface_container_high = "#445566", outline_variant = "#ddeeff" }
+noctalia = {}
+assert(color("card") == "surface")
+assert(color("muted_border", 0.5) == "on_surface_variant/0.5")
 for _, palette in ipairs({ old, new }) do
   noctalia = {
     getColor = function(role)
@@ -88,7 +91,7 @@ local function validate(node)
     assert(not value or not value:find("surface_container", 1, true))
   end
   if node.type == "label" then
-    assert(node.props.maxWidth and node.props.maxWidth > 0 and node.props.maxWidth <= 828)
+    assert(node.props.maxWidth and node.props.maxWidth > 0 and node.props.maxWidth <= 1072)
     assert(node.props.maxLines and node.props.maxLines > 0)
   end
   for _, child in ipairs(node.children) do
@@ -98,7 +101,7 @@ end
 for _, page in ipairs({ "home", "messages", "calls", "photos", "apps", "deck", "guide" }) do
   onNavigate(page)
   validate(tree)
-  assert(tree.props.width == 828 and tree.props.height == 438)
+  assert(tree.props.width == 1072 and tree.props.height == 528)
 end
 for _, command in ipairs(commands) do
   assert(command.action == "visible" or command.action == "page" or command.action == "page_leave")

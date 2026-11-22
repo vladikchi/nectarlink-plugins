@@ -77,13 +77,16 @@ local function nodes(kind)
   return found
 end
 local function keyed(key)
-  for _, kind in ipairs({ "column", "row" }) do
-    for _, n in ipairs(nodes(kind)) do
-      if n.props.key == key then
-        return n
-      end
+  local function walk(node)
+    if node.props.key == key then
+      return node
+    end
+    for _, child in ipairs(node.children) do
+      local found = walk(child)
+      if found then return found end
     end
   end
+  return walk(tree)
 end
 local function update(data)
   watchers["nl.snapshot"](data)
@@ -94,8 +97,8 @@ assert(ring.props.onClick and ring.props.tooltip == "Find phone")
 assert(ring.props.width >= 100 and ring.props.flexGrow == nil)
 assert(keyed("camera").props.width == keyed("webcam").props.width)
 assert(keyed("typing").props.width == keyed("camera").props.width)
-assert(ring.children[2].props.maxLines == 2 and ring.props.height == 68)
-assert(keyed("navigation").props.height == 398)
+assert(ring.children[2].props.maxLines == 1 and ring.props.height == 100)
+assert(keyed("navigation").props.height == 520)
 local function contains(parent, key)
   for _, child in ipairs(parent.children) do
     if child.props.key == key then
@@ -105,6 +108,12 @@ local function contains(parent, key)
   return false
 end
 assert(contains(keyed("sidebar"), "timeline") and not contains(keyed("content"), "timeline"))
+assert(contains(keyed("sidebar"), "notifications"))
+assert(contains(keyed("phone-battery").children[1], "refresh-home"))
+local countBeforeRefresh = #commands
+keyed("refresh-home").props.onClick()
+assert(#commands == countBeforeRefresh + 1 and commands[#commands].action == "refresh")
+assert(#tree.children == 1 and tree.children[1].props.key == "dashboard", "Home has no title bar")
 for _, child in ipairs(ring.children) do
   assert(child.kind ~= "button")
 end
@@ -113,7 +122,7 @@ ring.props.onClick()
 assert(commands[#commands].device == "one" and commands[#commands].value == true)
 fixture.devices[1].ringing = true
 update(fixture)
-assert(keyed("ring").props.fill == "primary/0.18")
+assert(keyed("ring").props.fill == "primary/0.16")
 keyed("ring").props.onClick()
 assert(commands[#commands].value == false)
 fixture.ringBusy = true
@@ -121,9 +130,9 @@ update(fixture)
 assert(not keyed("ring").props.onClick)
 fixture.ringBusy = false
 onTileHover("true", "files")
-assert(keyed("files").props.fill == "primary/0.18")
+assert(keyed("files").props.fill == "primary/0.16")
 onTileHover("false", "files")
-assert(keyed("files").props.fill == "#202020") -- Minimal mock has no palette API.
+assert(keyed("files").props.fill == "surface") -- Minimal mock has no palette API.
 assert(keyed("event-a") and not keyed("event-b"))
 fixture.devices[1].online = false
 update(fixture)
@@ -165,12 +174,12 @@ fixture.notifications = {
 }
 update(fixture)
 assert(keyed("notifications") and keyed("notice-one") and not keyed("notice-two"))
-assert(contains(keyed("content"), "notifications"))
+assert(contains(keyed("sidebar"), "notifications") and not keyed("timeline"))
 assert(keyed("ring").props.width >= 100)
-assert(keyed("content").props.width == keyed("ring").props.width * 4 + 30)
+assert(keyed("content").props.width == keyed("ring").props.width * 4 + 24)
 fixture.notifications = {}
 update(fixture)
-assert(not keyed("notifications"))
+assert(keyed("notifications") and not keyed("notice-one"))
 fixture.notifications = { { key = "one", deviceId = "one" } }
 config.panel_notifications = false
 update(fixture)
@@ -183,19 +192,44 @@ fixture.devices[1].controls = {
 update(fixture)
 assert(keyed("phone-controls") and keyed("ring").props.width >= 100)
 assert(not keyed("control-bluetooth").props.onClick)
+local function finishControl(command, busy)
+  fixture.controlRequestId = command.value.request_id
+  fixture.controlBusy = busy == true
+  update(fixture)
+end
 keyed("control-dnd").props.onClick()
 assert(commands[#commands].action == "phone_toggle" and commands[#commands].value.on == true)
+finishControl(commands[#commands])
 local before = #commands
-keyed("control-wifi").props.onClick()
-assert(#commands == before)
-for _, n in ipairs(nodes("button")) do
-  if n.props.text == "Turn off" then
-    n.props.onClick()
-  end
-end
+local wifiOff = keyed("control-wifi").props.onClick
+wifiOff()
+local wifiCommand = commands[#commands]
 assert(
-  commands[#commands].value.confirm_disconnect == true and commands[#commands].value.on == false
+  #commands == before + 1 and wifiCommand.device == "one" and wifiCommand.value.id == "wifi"
+    and wifiCommand.value.confirm_disconnect == true and wifiCommand.value.on == false
 )
+assert(keyed("session-strip") and not keyed("control-prompt") and not keyed("control-wifi").props.onClick)
+wifiOff()
+assert(#commands == before + 1)
+finishControl(wifiCommand, true)
+assert(not keyed("control-wifi").props.onClick and keyed("control-wifi").props.fill == "primary/0.20")
+fixture.devices[1].controls.state.wifi = false
+finishControl(wifiCommand)
+wifiOff()
+assert(#commands == before + 1)
+keyed("control-wifi").props.onClick()
+assert(commands[#commands].value.on == true and commands[#commands].value.confirm_disconnect == nil)
+finishControl(commands[#commands])
+local staleWifi = keyed("control-wifi").props.onClick
+fixture.devices[2] = { id = "another", name = "Other", online = true, controls = fixture.devices[1].controls }
+update(fixture)
+keyed("device-picker").props.onChange(1)
+local beforeSwitch = #commands
+staleWifi()
+assert(#commands == beforeSwitch, "a stale Wi-Fi button must not act after changing phones")
+keyed("device-picker").props.onChange(0)
+fixture.devices[2] = nil
+update(fixture)
 local function ringer(mode)
   for _, n in ipairs(nodes("button")) do
     if n.props.key == "ringer-" .. mode then
@@ -207,7 +241,7 @@ assert(ringer("ring") and not ringer("ring").enabled)
 fixture.devices[1].controls.state.ringer = "vibrate"
 fixture.devices[1].controls.allowed.ringer = true
 update(fixture)
-assert(ringer("vibrate").variant == "secondary" and ringer("silent").enabled)
+assert(ringer("vibrate").variant == "primary" and ringer("silent").enabled)
 before = #commands
 ringer("vibrate").onClick()
 assert(#commands == before)
@@ -218,6 +252,7 @@ assert(
     and commands[#commands].value.on == nil
 )
 fixture.controlBusy = true
+fixture.controlRequestId = commands[#commands].value.request_id
 update(fixture)
 assert(not ringer("ring").onClick)
 fixture.controlBusy = false
@@ -227,12 +262,12 @@ assert(not ringer("ring").enabled)
 fixture.devices[1].online = true
 update(fixture)
 local rc = keyed("ringer-controls")
-assert(rc.props.height == 40 and rc.props.width == 260)
+assert(rc.props.height == 36)
 local used = 2 * rc.props.padding + (#rc.children - 1) * rc.props.gap
 for _, n in ipairs(rc.children) do
   used = used + n.props.width
 end
-assert(used == 260)
+assert(used == rc.props.width)
 fixture.sessions = {
   one = {
     pc_audio = "off",
@@ -273,6 +308,17 @@ assert(commands[#commands].value.kind == "phone_audio" and commands[#commands].v
 fixture.sessions.one.keyboard = "enabled"
 update(fixture)
 assert(keyed("typing-form") and not keyed("typing"))
+assert(keyed("phone-controls"))
+local function heightUsed(column)
+  local p = column.props
+  local height = 2 * (p.padding or 0) + (#column.children - 1) * (p.gap or 0)
+  for _, child in ipairs(column.children) do
+    height = height + (child.props.height or 0)
+  end
+  return height
+end
+assert(heightUsed(keyed("content")) <= keyed("content").props.height)
+assert(heightUsed(keyed("phone-controls")) <= keyed("phone-controls").props.height)
 nodes("input")[1].props.onChange("example")
 nodes("input")[1].props.onSubmit()
 assert(commands[#commands].action == "type_text" and commands[#commands].value == "example")
@@ -307,71 +353,83 @@ fixture.notifications =
   { { key = "long", deviceId = "one", appName = "App\nname", title = huge, text = huge } }
 fixture.notificationsState = "ready"
 update(fixture)
-assert(tree.props.clip == nil and tree.props.height == 438 and tree.props.padding == 3)
-assert(keyed("dashboard").props.clip == nil and keyed("dashboard").props.height == 398)
+assert(tree.props.clip == nil and tree.props.height == 528 and tree.props.padding == 4)
+assert(keyed("dashboard").props.clip == nil and keyed("dashboard").props.height == 520)
 assert(keyed("content").props.clip == nil and keyed("sidebar").props.clip == nil)
-assert(keyed("timeline").props.clip == nil and keyed("timeline").props.height <= 120)
-assert(keyed("event-long-a").props.clip == nil and keyed("event-long-a").props.height == 32)
-assert(keyed("notifications").props.clip == nil and keyed("notifications").props.height == 104)
-assert(keyed("notice-long").props.clip == nil and keyed("notice-long").props.height == 80)
+assert(not keyed("home-tabs"))
+assert(contains(keyed("content"), "phone-controls") and contains(keyed("sidebar"), "timeline"))
+assert(contains(keyed("sidebar"), "notifications") and not contains(keyed("sidebar"), "phone-controls"))
+for _, id in ipairs({ "long-a", "long-b" }) do
+  local row = keyed("event-" .. id)
+  local marker, card = row.children[1], row.children[2]
+  assert(marker.props.width + row.props.gap + card.props.width == row.props.width)
+  assert(card.props.height == row.props.height and row.props.clip == nil)
+  local heading = card.children[2].children[1]
+  assert(utf8.len(heading.children[1].props.text) <= 61)
+end
+assert(keyed("notice-long").props.clip == nil and keyed("notice-long").props.height == 62)
 for _, n in ipairs(nodes("label")) do
   assert(not n.props.text:find("[\r\n\t]"))
   assert(not n.props.text:find("\226\128\168", 1, true))
   assert(utf8.len(n.props.text))
-  assert(n.props.maxWidth and n.props.maxWidth > 0 and n.props.maxWidth <= 828)
+  assert(n.props.maxWidth and n.props.maxWidth > 0 and n.props.maxWidth <= 1072)
 end
-assert(utf8.len(keyed("notice-long").children[3].props.text) <= 97)
-assert(utf8.len(keyed("event-long-a").children[2].children[1].children[1].props.text) <= 29)
+local function noticePreview()
+  return keyed("notice-long").children[3].children[3].props.text
+end
+assert(utf8.len(noticePreview()) <= 97)
 assert(fixture.notifications[1].text == huge and fixture.timeline[1].title == huge)
-local used = 0
-for _, child in ipairs(keyed("content").children) do
-  if child.props.height then
-    used = used + child.props.height
-  elseif child.kind == "row" then
-    local height = 0
-    for _, tile in ipairs(child.children) do
-      height = math.max(height, tile.props.height or 0)
-    end
-    used = used + height
-  end
+assert(heightUsed(keyed("content")) == keyed("content").props.height)
+fixture.notifications[1].text = "invalid \255\254 bytes"
+update(fixture)
+assert(utf8.len(noticePreview()))
+for i = 2, 4 do
+  fixture.notifications[i] = { key = tostring(i), deviceId = "one", title = "Alert " .. i }
+  fixture.timeline[i] = { id = tostring(i), deviceId = "one", title = "Event " .. i }
 end
-used = used + keyed("content").props.gap * (#keyed("content").children - 1)
-assert(used <= 398, "dashboard children exceed available vertical space")
-assert(keyed("notifications") and used == 398, "notification block must fit the compact home")
-for _, pair in ipairs({
-  { "content", "notifications", "notifications-spacer" },
-  { "sidebar", "timeline", "timeline-spacer" },
-}) do
-  local col = keyed(pair[1])
-  assert(col.props.height == 398)
-  assert(col.children[#col.children].props.key == pair[2])
-  assert(
-    col.children[#col.children - 1].props.key == pair[3]
-      and col.children[#col.children - 1].props.flexGrow == 1
-  )
+update(fixture)
+assert(keyed("notice-3") and not keyed("notice-4"))
+assert(keyed("event-3") and not keyed("event-4"))
+for _, key in ipairs({ "sidebar", "notifications", "timeline", "phone-controls" }) do
+  local column = keyed(key)
+  assert(heightUsed(column) <= column.props.height)
 end
--- Exact maximum Home sidebar budget: controls 222 + modes 40 + history 112 + gaps 24.
 local controls = keyed("phone-controls")
-assert(controls.props.padding == 8 and controls.props.gap == 7)
+assert(controls.props.width == keyed("device").props.width)
 for _, kind in ipairs({ "pc_audio", "watch", "phone_audio" }) do
-  assert(keyed("session-row-" .. kind).props.height == 32)
+  assert(keyed("session-row-" .. kind).props.height == 46)
 end
-assert(16 + 28 + 54 + 3 * 32 + 4 * 7 + 40 + 112 + 3 * 8 == 398)
+before = #commands
+keyed("control-hotspot").props.onClick()
+assert(keyed("hotspot-choices") and not keyed("session-strip") and #commands == before)
+assert(heightUsed(keyed("phone-controls")) <= keyed("phone-controls").props.height)
+local oldHotspot = keyed("hotspot-off").props.onClick
+onNavigate("guide")
+onNavigate("home")
+before = #commands
+oldHotspot()
+assert(#commands == before and not keyed("hotspot-choices") and keyed("session-strip"))
+keyed("control-hotspot").props.onClick()
+keyed("hotspot-off").props.onClick()
+assert(#commands == before + 1 and commands[#commands].value.id == "hotspot" and commands[#commands].value.on == false)
+assert(not keyed("hotspot-choices") and keyed("session-strip"))
+finishControl(commands[#commands])
 assert(
   keyed("camera").props.width == keyed("webcam").props.width
     and keyed("camera").props.width == keyed("typing").props.width
 )
 assert(keyed("device").props.align == "center")
 assert(keyed("device").props.width == keyed("content").props.width)
-assert(keyed("phone-preview").props.height == 92 and keyed("phone-battery").props.height == 92)
+assert(keyed("phone-preview").props.height == 120 and keyed("phone-battery").props.height == 120)
 for _, key in ipairs({ "screen", "files", "clipboard", "ring", "camera", "webcam", "typing" }) do
   local card = keyed(key)
   if card then
-    local text = card.children[#card.children]
-    assert(text.props.maxWidth == card.props.width - 16, "tile text must fit its own padding")
+    local compact = card.kind == "row"
+    local caption = compact and card.children[2].children[2] or card.children[3]
+    assert(caption.props.text ~= "" and caption.props.maxLines == 1)
+    assert(caption.props.maxWidth == card.props.width - (compact and 53 or 20))
   end
 end
-assert(keyed("notice-long").children[3].props.maxWidth == keyed("content").props.width - 16)
 assert(
   keyed("phone-preview").props.height + 2 * keyed("device").props.padding
     <= keyed("device").props.height
@@ -381,33 +439,6 @@ assert(
     and keyed("phone-preview-screen").props.clip == nil
     and keyed("phone-info").props.clip == nil
 )
-assert(
-  keyed("phone-controls").props.width == keyed("timeline").props.width
-    and keyed("phone-controls").props.padding == keyed("timeline").props.padding
-)
-local header = keyed("timeline-header")
-assert(
-  header.props.clip == nil
-    and header.children[1].props.width + header.children[2].props.width + header.props.gap
-      == header.props.width
-)
-for _, id in ipairs({ "long-a", "long-b" }) do
-  local row = keyed("event-" .. id)
-  local icon, text = row.children[1], row.children[2]
-  assert(icon.props.width + row.props.gap + text.props.width == row.props.width)
-  assert(text.props.clip == nil and text.props.height == 32)
-  assert(text.children[1].props.height + text.children[2].props.height == 32)
-  for _, slot in ipairs(text.children) do
-    assert(
-      slot.props.clip == nil
-        and slot.children[1].props.maxWidth == 216
-        and slot.children[1].props.maxLines == 1
-    )
-  end
-end
-fixture.notifications[1].text = "invalid \255\254 bytes"
-update(fixture)
-assert(utf8.len(keyed("notice-long").children[3].props.text))
 onClose()
 print(
   "PASS: actions, sessions, drafts, preferences, multiline/UTF-8 previews, fixed card bounds and dashboard height budget"

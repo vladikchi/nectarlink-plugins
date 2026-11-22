@@ -100,17 +100,25 @@ local sessions = {
 respond("/v1/sessions", { devices = sessions })
 respond("/v1/notifications", {
   notifications = {
-    { deviceId = "one", key = "n", appName = "Test", title = "Test", text = "Example" },
+    {
+      deviceId = "one", key = "n", appName = "Test", title = "Test", text = "Example",
+      timestamp = 1795339860000,
+    },
   },
 })
 assert(latest.notificationsState == "ready" and #latest.notifications == 1)
+assert(latest.notifications[1].timestamp == 1795339860000)
 respond("/v1/timeline", {
   items = {
-    { id = "x", deviceId = "one", title = "Event", detail = "PRIVATE", target = "PRIVATE" },
+    {
+      id = "x", deviceId = "one", title = "Event", detail = "PRIVATE", target = "PRIVATE",
+      timestamp = 1795340700000,
+    },
   },
 })
 assert(latest.timelineState == "ready" and #latest.timeline == 1)
 assert(latest.timeline[1].detail == nil and latest.timeline[1].target == nil)
+assert(latest.timeline[1].timestamp == 1795340700000)
 respond("/v1/devices", { devices = devices })
 command("camera", "missing")
 assert(#requests == 0)
@@ -140,6 +148,24 @@ command(
 assert(#requests == 1)
 respond("/v1/page-action", { ok = true, accepted = true })
 assert(not latest.pageActionBusy and latest.pageActionResult == nil)
+local dial = { action = "dial", text = "2025550103", request_id = string.rep("a", 32), confirm = true }
+command("page_action", "missing", dial)
+assert(#requests == 0 and latest.pageActionRequestId == dial.request_id, "rejected dial still releases the UI lock")
+dial.request_id = string.rep("b", 32)
+command("page_action", "one", dial)
+assert(latest.pageActionBusy and latest.pageActionRequestId == dial.request_id)
+command("page_action", "one", dial)
+assert(#requests == 1, "do not dispatch a second outgoing call while busy")
+local dialReq = respond("/v1/page-action", { ok = true, accepted = true })
+assert(dialReq.body.device == "one" and dialReq.body.text == dial.text and dialReq.body.confirm == true)
+assert(not latest.pageActionBusy and latest.pageActionRequestId == dial.request_id, "keep the acknowledgement after completion")
+command("page_action", "one", dial)
+assert(#requests == 0)
+local photo = { action = "photo", id = "demo-photo", request_id = string.rep("c", 32), confirm = true }
+command("page_action", "one", photo)
+assert(latest.pageActionBusy and latest.pageActionRequestId == photo.request_id)
+assert(respond("/v1/page-action", { ok = true }).body.id == "demo-photo")
+assert(not latest.pageActionBusy and latest.pageActionRequestId == photo.request_id)
 command("page_leave")
 assert(not latest.page)
 command("session", "one", { kind = "watch", on = true })
@@ -166,15 +192,35 @@ assert(latest.typeSent == nil and latest.typeDeliveryDevice == "one")
 command("type_text", "one", "example") -- Only an explicit user action repeats text.
 respond("/v1/type", { ok = true, acknowledged = true })
 assert(latest.typeSent == 1 and latest.typeSentDevice == "one")
-command("phone_toggle", "one", { id = "wifi", on = false })
-assert(#requests == 0)
+devices[1].controls.allowed.wifi = true
+devices[1].controls.state.wifi = true
+local wifi = { id = "wifi", on = false, request_id = string.rep("1", 32) }
+command("phone_toggle", "one", wifi)
+assert(#requests == 0 and latest.controlRequestId == wifi.request_id, "API disconnect guard still applies")
+wifi.confirm_disconnect = true
+wifi.request_id = string.rep("2", 32)
+command("phone_toggle", "missing", wifi)
+assert(#requests == 0 and latest.controlRequestId == wifi.request_id)
+wifi.request_id = string.rep("3", 32)
+command("phone_toggle", "one", wifi)
+assert(latest.controlBusy and latest.controlRequestId == wifi.request_id)
+command("phone_toggle", "one", wifi)
+assert(#requests == 1)
+local wifiRequest = respond("/v1/phone-toggle", { ok = true }).body
+assert(wifiRequest.device == "one" and wifiRequest.on == false and wifiRequest.confirm_disconnect == true)
+assert(wifiRequest.request_id == nil, "toggle receipt is internal, not part of the desktop API")
+assert(latest.devices[1].controls.state.wifi == true and latest.controlBusy)
+devices[1].controls.state.wifi = false
+respond("/v1/devices", { devices = devices })
+assert(latest.devices[1].controls.state.wifi == false and not latest.controlBusy)
 command("phone_toggle", "one", { id = "dnd", on = true })
 command("phone_toggle", "one", { id = "dnd", on = true })
 assert(#requests == 1)
 local control = respond("/v1/phone-toggle", { ok = true })
 assert(control.body.device == "one" and control.body.id == "dnd" and control.body.on == true)
-assert(not latest.controlBusy)
+assert(latest.controlBusy)
 respond("/v1/devices", { devices = devices })
+assert(not latest.controlBusy)
 assert(latest.devices[1].controls.state.dnd == false) -- Do not fabricate a changed state.
 devices[1].controls.allowed.ringer = true
 devices[1].controls.state.ringer = "vibrate"
@@ -310,5 +356,5 @@ respond("/v1/page", { ok = true, items = {} })
 assert(latest.page.key == "coalesced-open" and latest.page.status == "ready")
 command("visible", nil, false)
 print(
-  "PASS: service privacy/preferences, sessions, sidebar wire format, stale replies, confirmations and no automatic action retry"
+  "PASS: service privacy/preferences, sessions, wire flags, action receipts, stale replies and no automatic retry"
 )

@@ -218,7 +218,7 @@ ui = setmetatable({}, {
 })
 panel = {
   render = function(value)
-    assert(value.props.width == 828 and value.props.height == 438)
+    assert(value.props.width == 1072 and value.props.height == 528)
     tree = value
   end,
 }
@@ -281,12 +281,15 @@ assert(find(function(n)
   return n.kind == "label" and n.props.text == "API feature unavailable"
 end))
 assert(key("help-fork"))
+key("help-fork").props.onClick()
+assert(commands[#commands].action == "open_fork")
 fixture.page =
   { key = pageKey, status = "ready", data = { items = { { id = "good", title = "Saved" } } } }
 uiWatcher(fixture)
 fixture.page = { key = pageKey, status = "failed", error = "invalid_response" }
 uiWatcher(fixture)
 assert(key("page-item-good"))
+assert(key("page-cache"))
 assert(find(function(n)
   return (n.props.tooltip or ""):find("Unexpected API response", 1, true)
 end))

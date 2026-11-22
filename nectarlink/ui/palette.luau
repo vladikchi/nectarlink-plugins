@@ -14,7 +14,10 @@ local function color(name, alpha)
     value = noctalia.getColor(table.concat(choices[1], "_"))
       or noctalia.getColor(table.concat(choices[2], "_"))
   end
-  value = value or (name == "muted_border" and "#808080" or "#202020")
+  if not value then
+    local role = name == "muted_border" and "on_surface_variant" or "surface"
+    return alpha and (role .. "/" .. alpha) or role
+  end
   if alpha then
     return value:sub(1, 7) .. string.format("%02x", math.floor(alpha * 255 + 0.5))
   end

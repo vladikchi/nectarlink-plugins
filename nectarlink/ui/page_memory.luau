@@ -9,6 +9,7 @@ local navigationFields = {
   "before",
   "beforeId",
   "thread",
+  "threadList", -- Replaced as a unit; the thread-list pager never mutates a saved value.
   "album",
   "search",
   "searchDraft",
@@ -130,6 +131,11 @@ function M.new(model)
     navigation = store(32, 256 * 1024)
     model.pageView = nil
   end
-  return { save = save, restore = restore, remember = remember, resolve = resolve, clear = clear }
+  return {
+    save = save, restore = restore, remember = remember, resolve = resolve, clear = clear,
+    saved = function(key)
+      return views.get(key)
+    end,
+  }
 end
 return M

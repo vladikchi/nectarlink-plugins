@@ -1,397 +1,282 @@
 --!nonstrict
--- Lists, grids and pagination: node construction and explicit callbacks only.
+-- Section lists and grids are projections of the current page, not new reads.
 local palette = require("./palette.luau")
+local metrics = require("./components.luau").layout.page
 local M = {}
+local callIcons = {
+  outgoing = "arrow-up-right", incoming = "arrow-down-left",
+  missed = "phone-x", rejected = "phone-x",
+}
+
 local function finite(value)
   return type(value) == "number" and value == value and math.abs(value) <= 9007199254740991
 end
+
 function M.new(model, components, actions)
-  local geometry = require("./components.luau").layout
-  local appsLayout = components.appsLayout
-  local preview = components.preview
-  local label = components.label
-  local pager = components.pager
-  local directions = components.directions
-  local deckLabels = components.deckLabels
-  local deckGlyphs = components.deckGlyphs
-  local render = actions.render
-  local dispatchPageAction = actions.dispatchPageAction
-  local function renderPageItems(add, online, width, data, refresh)
-    -- data is the displayed response; refresh explicitly requests another read.
-    -- Node construction never executes actions; only onClick dispatches them.
-    -- The service validates before caching; also defend against legacy snapshots.
-    local items = type(data.items) == "table" and data.items or {}
-    local notice = type(data.notice) == "string" and data.notice or ""
-    local appLayout = appsLayout()
-    local maxRows = model.page == "photos" and 8
-      or (
-        model.page == "apps" and appLayout.limit
-        or (model.page == "deck" and #items or (model.page == "messages" and 7 or 6))
-      )
-    if model.page == "calls" and type(data.active) == "table" and data.active.state ~= "ended" then
-      maxRows = 5
+  local label, preview = components.label, components.preview
+  local badge = components.iconBadge
+
+  local function callRow(width, key, item, title, subtitle, onClick)
+    local icon = callIcons[item.subtitle] or "phone"
+    local missed = item.subtitle == "missed"
+    local time
+    if noctalia.formatTime and finite(item.date) and item.date > 0 and item.date < 253402300800000 then
+      time = noctalia.formatTime("%d.%m · %H:%M", math.floor(item.date / 1000))
     end
-    -- Reserve space for composer, navigation and status; lists never scroll.
-    if model.page == "messages" and model.thread then
-      maxRows = 6
+    local textWidth = width - 80 - (time and 96 or 0)
+    local children = {
+      badge(icon, 34, missed and "error" or "primary",
+        missed and "error/0.12" or nil),
+      ui.column({ flexGrow = 1, gap = 1 }, {
+        label(title, 13, "on_surface", true, textWidth),
+        label(subtitle, 11, "on_surface_variant", false, textWidth),
+      }),
+    }
+    if time then children[#children + 1] = label(time, 10, "on_surface_variant", false, 88) end
+    if onClick then
+      children[#children + 1] = ui.glyph({ name = "chevron-right", size = 14, color = "on_surface_variant" })
     end
-    -- Legacy API notice text, not a UI translation key. Keep matching the wire
-    -- value regardless of the shell language until the API supplies a notice code.
-    local legacyHistoryNotice = notice:find("Последние 100", 1, true) ~= nil
-    if
-      (model.page == "messages" or model.page == "calls")
-      and notice ~= ""
-      and not legacyHistoryNotice
-    then
-      maxRows = math.max(1, maxRows - 1)
-    end
-    if model.page == "calls" and model.dialOpen then
-      maxRows = 0
-    end
-    local grid = {}
-    local gridColumns = model.page == "apps" and appLayout.columns or 4
-    if model.page == "deck" then
-      gridColumns = #items <= 16 and 4
-        or (#items <= 30 and 5 or (#items <= 48 and 6 or (#items <= 96 and 8 or 16)))
-    end
-    local gridRows = math.max(1, math.ceil(math.min(#items, maxRows) / gridColumns))
-    local cellWidth = math.floor((width - 12 - (gridColumns - 1) * 6) / gridColumns)
-    local imageSide = cellWidth - 8
-    local cellHeight = model.page == "photos" and 136
-      or (
-        model.page == "apps" and 80
-        or math.min(88, math.floor((336 - (gridRows - 1) * 6) / gridRows))
-      )
-    if model.page == "apps" then
-      cellWidth = appLayout.side
-      cellHeight = appLayout.side
-      imageSide = cellWidth - 8
-    end
-    for i, rawItem in ipairs(items) do
-      if i > maxRows then
-        break
-      end
-      local item = type(rawItem) == "table" and rawItem or {}
-      local addresses = {}
-      if type(item.addresses) == "table" then
-        for _, address in ipairs(item.addresses) do
-          if type(address) == "string" then
-            table.insert(addresses, address)
-          end
-        end
-      end
-      local title = type(item.title) == "string" and item.title ~= "" and item.title
-        or (#addresses > 0 and table.concat(addresses, ", ") or noctalia.tr("messages.message"))
-      local subtitle = type(item.subtitle) == "string" and item.subtitle
-        or (finite(item.size) and item.size >= 0 and noctalia.tr(
-          "common.kib",
-          { size = math.floor(item.size / 1024) }
-        ))
-        or ""
-      if model.page == "deck" then
-        title = deckLabels[title] or title
-        subtitle = subtitle == "Main" and noctalia.tr("deck.main") or subtitle
-      end
-      if model.page == "calls" then
-        subtitle = (directions[subtitle] or subtitle)
-          .. (
-            finite(item.duration)
-              and item.duration > 0
-              and (" · " .. noctalia.tr(
-                "calls.duration",
-                { minutes = math.floor(item.duration / 60), seconds = item.duration % 60 }
-              ))
-            or ""
-          )
-      end
-      if model.page == "messages" and not model.thread then
-        subtitle = noctalia.tr(
-          item.kind == "sms" and "messages.sms_preview" or "messages.chat_preview",
-          { text = subtitle }
-        )
-      end
-      local itemClick = function()
-        if type(item.id) ~= "string" or item.id == "" then
-          return
-        end
-        if
-          item.addresses ~= nil
-          and (type(item.addresses) ~= "table" or #addresses ~= #item.addresses)
-        then
-          return
-        end
-        if model.page == "messages" and not model.thread then
-          model.thread = item
-          model.offset = 0
-          model.cursors = {}
-          model.before = nil
-          model.pageKey = nil
-          render()
-        elseif model.page == "messages" then
-          model.detail = item
-          model.detailPart = 0
-          render()
-        elseif model.page == "calls" then
-          model.pageDrafts[(model.selected or "none") .. "|dial"] = type(item.number) == "string"
-              and item.number
-            or ""
-          model.dialOpen = true
-          render()
-        elseif model.page == "photos" then
-          model.detail = item
-          model.detailPart = 0
-          render()
-        elseif model.page == "apps" and online and not model.snapshot.pageActionBusy then
-          dispatchPageAction("app", item.id)
-          render()
-        elseif model.page == "deck" and not model.snapshot.pageActionBusy then
-          dispatchPageAction("deck", item.id)
-          render()
-        end
-      end
-      if model.page == "photos" or model.page == "deck" or model.page == "apps" then
-        local children = {}
-        if model.page == "photos" then
-          table.insert(
-            children,
-            ui.row({ width = imageSide, height = 128, align = "center", justify = "center" }, {
-              type(item.thumbnailPath) == "string"
-                  and ui.image({
-                    path = item.thumbnailPath,
-                    width = imageSide,
-                    height = 128,
-                    fit = "cover",
-                    radius = 6,
-                  })
-                or ui.column({
-                  width = imageSide,
-                  height = 128,
-                  align = "center",
-                  justify = "center",
-                  fill = palette("raised"),
-                  radius = 6,
-                }, {
-                  ui.glyph({ name = "photo", size = 28, color = "on_surface_variant" }),
-                }),
-            })
-          )
-        elseif model.page == "apps" then
-          table.insert(
-            children,
-            ui.row({ width = imageSide, height = 24, align = "center", justify = "center" }, {
-              type(item.iconPath) == "string"
-                  and ui.image({ path = item.iconPath, width = 24, height = 24, fit = "contain" })
-                or ui.glyph({ name = "apps", size = 24, color = "primary" }),
-            })
-          )
-        else
-          local glyphSize = cellHeight >= 76 and 24 or math.min(18, cellHeight - 8)
-          table.insert(
-            children,
-            ui.row({ width = imageSide, height = cellHeight >= 76 and 28 or glyphSize }, {
-              ui.glyph({
-                name = deckGlyphs[item.kind] or "layout-grid",
-                size = glyphSize,
-                color = "primary",
-              }),
-            })
-          )
-        end
-        -- Label.height is not a rigid layout constraint in Noctalia 5.5.
-        -- Give text its own fixed flex slot and maxWidth so image/title
-        -- measurements cannot grow a card or spill into the next row.
-        if
-          (model.page == "apps" and appLayout.names)
-          or (
-            model.page ~= "apps"
-            and model.page ~= "photos"
-            and (model.page ~= "deck" or cellHeight >= 48)
-          )
-        then
-          table.insert(
-            children,
-            ui.column({
-              width = imageSide,
-              height = 20,
-              align = model.page == "apps" and "center" or "start",
-              justify = "center",
-            }, {
-              ui.label({
-                text = preview(title, 26),
-                maxWidth = imageSide,
-                maxLines = 1,
-                fontFamily = "sans-serif",
-                fontSize = model.page == "apps" and 10 or 12,
-                fontWeight = model.page ~= "apps" and "bold" or nil,
-              }),
-            })
-          )
-        end
-        if model.page == "deck" and cellHeight >= 76 then
-          table.insert(
-            children,
-            ui.column({ width = imageSide, height = 16, align = "start" }, {
-              ui.label({
-                text = preview(subtitle, 26),
-                maxWidth = imageSide,
-                maxLines = 1,
-                fontFamily = "sans-serif",
-                fontSize = 10,
-                color = "on_surface_variant",
-              }),
-            })
-          )
-        end
-        local appKey = "page-item-" .. tostring(item.id)
-        table.insert(
-          grid,
-          ui.column({
-            key = appKey,
-            width = cellWidth,
-            height = cellHeight,
-            gap = 2,
-            padding = 4,
-            radius = 8,
-            align = model.page == "apps" and "center" or "start",
-            justify = model.page == "apps" and "center" or "start",
-            tooltip = title .. (subtitle ~= "" and (" · " .. subtitle) or ""),
-            onClick = itemClick,
-            onHover = model.page == "apps" and "onTileHover" or nil,
-            fill = model.page == "apps"
-                and (model.hovered == appKey and palette("raised") or "transparent")
-              or palette("card"),
-          }, children)
-        )
-        if model.page == "apps" then
-          model.appHoverNodes[appKey] = grid[#grid]
-        end
-      else
-        local glyph = model.page == "calls"
-            and (item.subtitle == "outgoing" and "arrow-up-right" or "arrow-down-left")
-          or (model.page == "apps" and "apps" or "message")
-        -- Reserve the icon, padding, gaps and optional timestamp explicitly.
-        local textWidth = width - 62 - (finite(item.date) and noctalia.formatTime and 94 or 0)
-        local children = {
-          ui.column({
-            width = 28,
-            height = 30,
-            align = "center",
-            justify = "center",
-            radius = 8,
-            fill = "primary/0.1",
-          }, {
-            ui.glyph({
-              name = glyph,
-              size = 18,
-              color = model.page == "calls" and item.subtitle == "missed" and "error" or "primary",
-            }),
+    return ui.row({
+      key = key, width = width, height = metrics.callRow, gap = 9, paddingH = 8,
+      align = "center", radius = 10, tooltip = title, onClick = onClick,
+      fill = palette("raised", 0.72),
+    }, children)
+  end
+
+  local function cell(gallery, key, item, title, subtitle, onClick)
+    local page, w, h = gallery.page, gallery.cellWidth, gallery.cellHeight
+    local children, padding, gap = {}, page == "photos" and 6 or 4, 4
+    if page == "deck" then padding = h >= 94 and 10 or (h >= 60 and 6 or 4) end
+    local inner = w - 2 * padding
+    if page == "photos" then
+      local imageHeight = h - 2 * padding - gap - 18
+      children[1] = type(item.thumbnailPath) == "string" and ui.image({
+        path = item.thumbnailPath, width = inner, height = imageHeight, fit = "cover", radius = 8,
+      }) or ui.column({
+        width = inner, height = imageHeight, align = "center", justify = "center",
+        fill = "on_surface_variant/0.08", radius = 8,
+      }, { ui.glyph({ name = "photo", size = 28, color = "on_surface_variant" }) })
+      children[2] = ui.row({ width = inner, height = 18, gap = 5, paddingH = 2, align = "center" }, {
+        label(title, 11, "on_surface", true, inner - 4),
+      })
+    elseif page == "apps" then
+      local side = gallery.names and 34 or 26
+      children[1] = ui.row({ width = inner, height = side, align = "center", justify = "center" }, {
+        type(item.iconPath) == "string"
+            and ui.image({ path = item.iconPath, width = side, height = side, fit = "contain" })
+          or ui.glyph({ name = "apps", size = side, color = "primary" }),
+      })
+      if gallery.names then
+        children[2] = ui.column({ width = inner, height = 32, align = "center", justify = "center" }, {
+          ui.label({
+            text = title, fontFamily = "sans-serif", fontSize = 11, color = "on_surface",
+            maxWidth = inner, maxLines = 2, textAlign = "center",
           }),
-          ui.column({ gap = 1, flexGrow = 1 }, {
-            label(preview(title, 54), 12, "on_surface", true, textWidth),
-            label(preview(subtitle, 72), 11, "on_surface_variant", false, textWidth),
-          }),
-        }
-        if finite(item.date) and noctalia.formatTime then
-          table.insert(
-            children,
-            label(
-              noctalia.formatTime("%d.%m %H:%M", math.floor(item.date / 1000)),
-              10,
-              "on_surface_variant",
-              false,
-              86
-            )
-          )
-        end
-        if model.page == "apps" then
-          table.insert(
-            children,
-            ui.glyph({ name = "external-link", size = 16, color = "on_surface_variant" })
-          )
-        end
-        add(ui.row({
-          key = "page-item-" .. tostring(item.id),
-          width = width - 12,
-          gap = 8,
-          padding = 3,
-          height = 40,
-          radius = 9,
-          fill = palette("card"),
-          tooltip = model.page == "apps" and noctalia.tr("apps.open_window") or title,
-          onClick = itemClick,
-        }, children))
+        })
+      end
+    else
+      local large = h >= 88
+      local badgeSide = large and 34 or math.min(24, h - 8)
+      children[1] = badge(components.deckGlyphs[item.kind] or "layout-grid", badgeSide,
+        "primary", nil, large and 21 or math.min(17, badgeSide - 2))
+      if h >= 58 then
+        children[2] = ui.column({ width = inner, height = 18, justify = "center" }, {
+          label(title, 12, "on_surface", true, inner),
+        })
+      end
+      if large and subtitle ~= "" then
+        children[3] = ui.column({ width = inner, height = 14 }, {
+          label(subtitle, 10, "on_surface_variant", false, inner),
+        })
       end
     end
-    if #grid > 0 then
-      local lines = {}
-      for first = 1, #grid, gridColumns do
-        local cells = {}
-        for j = first, math.min(first + gridColumns - 1, #grid) do
-          table.insert(cells, grid[j])
-        end
-        table.insert(
-          lines,
-          ui.row({
-            key = "grid-row-" .. first,
-            width = width - 12,
-            gap = model.page == "apps" and appLayout.gap or 6,
-            height = cellHeight,
-            align = "start",
-            justify = "start",
-          }, cells)
-        )
+    local centered = page == "apps" or (page == "deck" and h < 58)
+    local node = ui.column({
+      key = key, width = w, height = h, padding = padding, gap = gap, radius = 10,
+      align = centered and "center" or "start",
+      justify = page == "photos" and "start" or "center",
+      tooltip = title .. (subtitle ~= "" and (" · " .. subtitle) or ""),
+      onClick = onClick,
+      onHover = page == "apps" and "onTileHover" or nil,
+      fill = page == "apps" and components.appTileFill(model.hovered == key) or palette("raised", 0.72),
+    }, children)
+    if page == "apps" then model.appHoverNodes[key] = node end
+    return node
+  end
+
+  local function gridLayout(page, width, count)
+    local gap, columns = metrics.itemGap, 4
+    local apps = page == "apps" and components.appsLayout()
+    if apps then
+      columns = apps.columns
+    elseif page == "deck" then
+      -- Keep all of the API's Deck tiles visible, including the dense 192-tile case.
+      columns = count <= 16 and 4
+        or (count <= 30 and 5 or (count <= 48 and 6 or (count <= 96 and 8 or 16)))
+    end
+    local rows = math.ceil(count / columns)
+    local cellWidth = apps and apps.width or math.floor((width - (columns - 1) * gap) / columns)
+    local cellHeight = apps and apps.height or (page == "photos"
+      and math.floor((metrics.gallery - gap) / 2)
+      or math.min(110, math.floor((metrics.body - metrics.notice - metrics.gap - (rows - 1) * gap) / rows)))
+    return {
+      page = page, columns = columns, rows = rows, cellWidth = cellWidth, cellHeight = cellHeight,
+      names = apps and apps.names,
+      gap = apps and apps.gap or (width - columns * cellWidth) / (columns - 1),
+    }
+  end
+
+  local function grid(width, gallery, cells)
+    local lines = {}
+    for first = 1, #cells, gallery.columns do
+      local row = {}
+      for index = first, math.min(first + gallery.columns - 1, #cells) do
+        row[#row + 1] = cells[index]
       end
-      add(ui.column({
-        key = "page-grid",
-        width = width - 12,
-        gap = 6,
-        height = gridRows * cellHeight + (gridRows - 1) * 6,
+      lines[#lines + 1] = ui.row({
+        key = "grid-row-" .. first, width = width, height = gallery.cellHeight, gap = gallery.gap,
         align = "start",
-        justify = "start",
-      }, lines))
+      }, row)
     end
-    if #items == 0 then
-      add(label(noctalia.tr("common.no_items"), 12, "on_surface_variant"))
+    return ui.column({
+      key = "page-grid", width = width, gap = metrics.itemGap,
+      height = gallery.rows * gallery.cellHeight + (gallery.rows - 1) * metrics.itemGap,
+    }, lines)
+  end
+
+  local function noticeRow(width, notice, key)
+    if type(notice) ~= "string" or notice == "" then return nil end
+    return ui.row({
+      key = key or "page-notice", width = width, height = metrics.notice, gap = 6, align = "center",
+      tooltip = preview(notice, 220),
+    }, {
+      ui.glyph({ name = "info-circle", size = 14, color = "on_surface_variant" }),
+      label(notice, 11, "on_surface_variant", false, width - 20),
+    })
+  end
+
+  local function steps(data, count, nav, cursorPage, apply, key, prefix)
+    local items = type(data.items) == "table" and data.items or {}
+    -- A cursor must point at the last displayed row, never a hidden response row.
+    local last = items[count]
+    local canNext = (data.more == true or #items > count) and count > 0
+      and (not cursorPage or (type(last) == "table" and finite(last.date) and type(last.id) == "string"))
+    local stack = nav.cursors
+    local current = { offset = nav.offset, before = nav.before, beforeId = nav.beforeId }
+    local function copyStack(take)
+      local copy = {}
+      for i = 1, take do copy[i] = stack[i] end
+      return copy
     end
-    if notice ~= "" and not legacyHistoryNotice then
-      add(label(preview(notice, 110), 10, "on_surface_variant"))
-    end
-    if model.page ~= "deck" and not (model.page == "calls" and model.dialOpen) then
-      add(ui.spacer({ flexGrow = 1 }))
-      add(pager(width - 12, #model.cursors + 1, function()
-        local old = table.remove(model.cursors)
-        if old then
-          model.offset = old.offset
-          model.before = old.before
-          model.beforeId = old.beforeId
-          refresh()
+    return components.pageSteps(#stack + 1, function()
+      local old = stack[#stack]
+      apply({
+        offset = old.offset, before = old.before, beforeId = old.beforeId,
+        cursors = copyStack(#stack - 1),
+      })
+    end, function()
+      local cursors = copyStack(#stack)
+      cursors[#cursors + 1] = current
+      if cursorPage then
+        apply({ offset = 0, before = last.date, beforeId = last.id, cursors = cursors })
+      else
+        apply({ offset = current.offset + count, cursors = cursors })
+      end
+    end, #stack > 0, canNext, key, prefix)
+  end
+
+  local function pageSteps(data, count, cursorPage, refresh)
+    local page, device, key, cursors = model.page, model.selected, model.pageKey, model.cursors
+    return steps(data, count, model, cursorPage, function(nav)
+      if not model.opened or model.page ~= page or model.selected ~= device or model.pageKey ~= key
+        or model.cursors ~= cursors then return end
+      model.offset, model.before, model.beforeId = nav.offset, nav.before, nav.beforeId
+      model.cursors = nav.cursors
+      refresh()
+    end)
+  end
+
+  local function render(add, online, width, data, refresh, selectNumber)
+    local page, device, pageKey = model.page, model.selected, model.pageKey
+    local dispatch = actions.bindAction("page", device)
+    local actionEnabled = not actions.actionBusy("page") and (page == "deck" or online)
+    local items = type(data.items) == "table" and data.items or {}
+    local limits = metrics.limits
+    local limit = (page == "apps" and components.appsLayout().limit) or limits[page]
+    local count = math.min(#items, limit)
+    local gallery = count > 0 and (page == "photos" or page == "apps" or page == "deck")
+      and gridLayout(page, width, count) or nil
+    local nodes = {}
+    for index = 1, count do
+      local item = type(items[index]) == "table" and items[index] or {}
+      local title = preview(item.title, 96)
+      if title == "" then
+        title = page == "calls" and preview(item.number, 96) or ""
+        if title == "" then title = components.titles[page] end
+      end
+      local subtitle = type(item.subtitle) == "string" and item.subtitle
+        or (finite(item.size) and item.size >= 0
+          and noctalia.tr("common.kib", { size = math.floor(item.size / 1024) })) or ""
+      if page == "deck" then
+        title = components.deckLabels[title] or title
+        if subtitle == "Main" then subtitle = noctalia.tr("deck.main") end
+      elseif page == "calls" then
+        subtitle = components.directions[subtitle] or subtitle
+        if finite(item.duration) and item.duration > 0 then
+          subtitle = subtitle .. " · " .. noctalia.tr("calls.duration", {
+            minutes = math.floor(item.duration / 60), seconds = math.floor(item.duration % 60),
+          })
         end
-      end, function()
-        local cursorPage = model.page == "calls"
-          or model.page == "photos"
-          or (model.page == "messages" and model.thread and model.thread.kind == "sms")
-        local last = items[math.min(#items, maxRows)]
-        if
-          cursorPage
-          and (type(last) ~= "table" or not finite(last.date) or type(last.id) ~= "string")
-        then
+      end
+      local function onClick()
+        if not model.opened or model.page ~= page or model.selected ~= device
+          or model.pageKey ~= pageKey or model.detail
+          or type(item.id) ~= "string" or item.id == "" then return end
+        if page == "photos" then
+          model.detail = item
+          model.detailPart = 0
+        elseif page == "calls" then
+          if type(item.number) == "string" and item.number ~= "" then return selectNumber(item.number) end
+          return
+        elseif page == "deck" or page == "apps" then
+          return dispatch({ action = page == "apps" and "app" or "deck", id = item.id })
+        else
           return
         end
-        table.insert(
-          model.cursors,
-          { offset = model.offset, before = model.before, beforeId = model.beforeId }
-        )
-        if cursorPage then
-          model.before = last.date
-          model.beforeId = last.id
-          model.offset = 0
-        else
-          model.offset = model.offset + math.min(maxRows, #items)
-        end
-        refresh()
-      end, #model.cursors > 0, data.more == true or #items > maxRows))
+        actions.render()
+      end
+      local key = "page-item-" .. tostring(item.id)
+      local canPickNumber = type(item.number) == "string" and item.number ~= ""
+      local tileClick = (page == "photos" or actionEnabled) and onClick or nil
+      if gallery then
+        nodes[index] = cell(gallery, key, item, title, subtitle, tileClick)
+      else
+        nodes[index] = callRow(width, key, item, title, subtitle, canPickNumber and onClick or nil)
+      end
+    end
+    if gallery then
+      add(grid(width, gallery, nodes))
+    elseif count > 0 then
+      add(ui.column({
+        key = "page-list", width = width, height = count * metrics.callRow + (count - 1) * metrics.itemGap,
+        gap = metrics.itemGap, align = "start",
+      }, nodes))
+    else
+      add(components.pageNote(noctalia.tr("common.no_items"), noctalia.tr("pages." .. page .. "_empty"),
+        "info-circle", width, 96, nil, "page-empty"))
+    end
+    add(noticeRow(width, data.notice))
+    if page == "deck" then return end
+
+    local pagination = pageSteps(data, count, page ~= "apps", refresh)
+    if page == "photos" then
+      add(ui.spacer({ flexGrow = 1 }))
+      add(ui.row({ width = width, height = metrics.pager, justify = "center" }, { pagination }))
+    else
+      return pagination
     end
   end
-  return { render = renderPageItems }
+  return { render = render, steps = steps, pageSteps = pageSteps, notice = noticeRow }
 end
+
 return M

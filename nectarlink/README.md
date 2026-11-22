@@ -67,7 +67,7 @@ Replace `messages` with `home`, `messages`, `calls`, `photos`, `apps`, `deck`, o
 - **Network and privacy:** Plugin HTTP requests go only to the desktop app on `127.0.0.1`. The plugin reads the API credentials from `~/.local/share/Nectarlink/api-token.json` and checks the local preview paths returned by the app. It does not read pairing keys or the NectarLink database. The desktop app handles communication with Android.
 - **Files and clipboard:** The plugin does not write files directly. Its caches and drafts live in memory. The setup card copies the installer command to the clipboard only when clicked; it does not download or execute it. Actions requested through the desktop app may write files or change the phone's state.
 - **Processes:** On explicit request, the plugin runs `nectarlink-desktop` (or the configured executable) to open the app, timeline, file picker, or clipboard tool. It runs `xdg-open` with the setup guide URL when requested. Both use argument lists without a shell.
-- **Phone actions:** Sending SMS or replies, dialing, managing an active call, requesting original photos, and turning off Wi-Fi require confirmation. Notification-based chats are not full conversation histories. Quick file and clipboard sharing require exactly one online phone. If an action times out, check the phone or PC before trying again: the plugin does not resend it automatically.
+- **Phone actions:** The action buttons send requests without a plugin confirmation dialog. Typing, selecting a conversation, and selecting a history row do not send anything. Android may still show its own permission prompts. Turning off Wi-Fi can disconnect the phone. The hotspot menu chooses On or Off explicitly because the phone does not report the hotspot state. Notification-based chats are not full conversation histories. Quick file and clipboard sharing require exactly one online phone. If an action times out, check the phone or PC before trying again: the plugin does not resend it automatically.
 
 ## Implementation and tests
 
@@ -80,7 +80,7 @@ Replace `messages` with `home`, `messages`, `calls`, `photos`, `apps`, `deck`, o
 | --- | --- | --- |
 | `connection` | [`service.luau`](service.luau) | Polls the app, manages connection state, and handles reads and actions. |
 | `phone` | [`widget.luau`](widget.luau) | Renders battery and phone status. It does not make HTTP requests. |
-| `controls` | [`panel.luau`](panel.luau) | Owns phone selection, pages, drafts, and confirmations. It neither reads the token nor makes HTTP requests. |
+| `controls` | [`panel.luau`](panel.luau) | Owns phone selection, pages, drafts, and click guards. It neither reads the token nor makes HTTP requests. |
 
 ```text
 panel ── nl.command ──► service ── loopback HTTP ──► NectarLink ──► phone
@@ -106,7 +106,7 @@ The service ticks every two seconds. It normally refreshes devices every four se
 
 Changes to the token or port are detected by rereading the file. A change or loss of credentials discards stale responses and clears associated service data and saved views. An action started under old credentials is not sent again under new ones.
 
-[`service/actions.luau`](service/actions.luau) handles page actions, sessions, text input, phone toggles, camera, and the find-my-phone ring. The panel captures the target before showing confirmation and sends a `request_id` when confirmed. Rendering, polling, and restoring pages never run actions. The panel reports `busy` or request ID exhaustion as rejections. It stops waiting after 15 service ticks if a response is lost, without canceling or retrying the action. Actions refresh the affected device, session, or page as appropriate; a stale response cannot confirm a newer command.
+[`service/actions.luau`](service/actions.luau) handles page actions, sessions, text input, phone toggles, camera, and the find-my-phone ring. For page actions and phone toggles, the panel binds the target, creates a request ID, and locks the controls immediately. The service echoes only the opaque ID to acknowledge receipt, not success. Switches reflect the next device read rather than changing optimistically. The existing API flags `confirm` and `confirm_disconnect` still carry explicit intent from the click; the API is unchanged. Rendering, polling, and restoring pages never run actions. The service reports rejection or timeouts without automatically retrying.
 
 Remote typing accepts nonempty text up to 16 KiB and requires an online phone with the remote keyboard enabled. A transport result (`sent`) is not proof the text appeared on Android. The draft remains unless the result explicitly reports `acknowledged`.
 
@@ -128,24 +128,27 @@ A fresh response avoids HTTP. Age uses `nowMs()` when available and service tick
 
 The response cache keeps at most 24 entries with an estimated combined budget of 4 MiB and evicts least recently used entries. [`cache_size.luau`](cache_size.luau) estimates strings and tables, avoids revisiting cycles, and caps traversal depth at 64. This is not a measurement of Noctalia's memory use. A valid response that is too large may be displayed without being cached. `previewData()` removes missing image paths from the display copy without modifying the cached response. Credential changes, phone removal, and relevant settings changes clear affected reads and entries. After an action, `invalidateKind()` targets the affected section and phone rather than every device.
 
-[`ui/page_memory.luau`](ui/page_memory.luau) keeps up to 24 rendered views within 4 MiB. Separate navigation memory keeps up to 32 phone/section entries within 256 KiB, including search, pagination, conversation, album, and recipient selection. It does not save failed or incomplete loads as finished views, nor does it keep pending actions or confirmations. Back navigation can show a saved view while a fresh read runs. A grid resize changes the page size and therefore the cache key. Both caches are lost when Noctalia restarts.
+[`ui/page_memory.luau`](ui/page_memory.luau) keeps up to 24 rendered views within 4 MiB. Separate navigation memory keeps up to 32 phone/section entries within 256 KiB, including search, pagination, conversation, album, and recipient selection. It does not save failed or incomplete loads as finished views, nor does it keep pending actions. Back navigation can show a saved view while a fresh read runs. A grid resize changes the page size and therefore the cache key. Both caches are lost when Noctalia restarts.
 
 ### UI modules
 
-`panel.luau` keeps the selected device, drafts, cursors, and temporary confirmations. `navigate()` saves a valid outgoing view. `onOpen()` takes the latest snapshot. While closed, the panel can retain the raw snapshot without parsing JSON on every background poll. Closing it clears temporary confirmations. First-time setup, a known offline device, and a transient connection failure are shown as distinct states.
+`panel.luau` keeps the selected device, drafts, cursors, and click guards. `navigate()` saves a valid outgoing view. `onOpen()` takes the latest snapshot. While closed, the panel can retain the raw snapshot without parsing JSON on every background poll. Closing it invalidates previously rendered action callbacks. First-time setup, a known offline device, and a transient connection failure are shown as distinct states.
 
 | Module | Responsibility |
 | --- | --- |
 | [`ui/components.luau`](ui/components.luau) | Shared sizing, buttons, cards, pagination, errors, and app grid sizing. |
-| [`ui/frame.luau`](ui/frame.luau) | Panel frame, header, phone selection, and settings access. |
+| [`ui/frame.luau`](ui/frame.luau) | Fixed panel frame, navigation rail, and settings access. |
 | [`ui/home.luau`](ui/home.luau) | Setup, quick actions, notifications, timeline, remote typing, and controls. |
-| [`ui/pages.luau`](ui/pages.luau) | Sections, search, albums, details, and confirmations. Long messages are split into chunks of 220 UTF-8 characters for display. |
-| [`ui/page_items.luau`](ui/page_items.luau) | Rows, grids, columns, pagination space, and item clicks. |
+| [`ui/pages.luau`](ui/pages.luau) | Shared section frame, loading and error states, and photo preview with a direct download button. |
+| [`ui/page_calls.luau`](ui/page_calls.luau) | History alongside a dialer. The number field, on-screen keys and history entries edit the same draft. |
+| [`ui/page_messages.luau`](ui/page_messages.luau) | Conversation list and selected SMS or notification records. Long messages paginate at UTF-8 character and line boundaries. |
+| [`ui/page_forms.luau`](ui/page_forms.luau), [`ui/page_guide.luau`](ui/page_guide.luau) | SMS composer, app search and album toolbars; local guide topics and setup instructions. |
+| [`ui/page_items.luau`](ui/page_items.luau) | Call history cards, photo, app and Deck grids, and shared cursor or offset pagination. |
 | [`ui/phone_controls.luau`](ui/phone_controls.luau) | Phone toggles, ringer modes, and sessions. Unknown state is not treated as off; unavailable features are not offered as ready. |
 | [`ui/page_memory.luau`](ui/page_memory.luau) | Saved views and navigation, separate from the network cache. |
 | [`ui/palette.luau`](ui/palette.luau) | Noctalia color roles and fallback names. It does not read the desktop app's palette file. |
 
-The UI uses native Noctalia elements and [translation keys](translations/en.json). Phone and app content is not translated. The panel declares a size of 860×470; arbitrary combinations of display scaling and large fonts have not been verified.
+The UI uses native Noctalia elements, theme colors, and [translation keys](translations/en.json). Phone and app content is not translated. The panel stays 1104×560 across sections. In Messages, the conversation list uses the current phone's cached view while the selected thread is read, with separate pagination for the two panes. Following another thread or moving the list does not send messages. The Apps search and pager share one toolbar, and grid capacity depends on the display mode and available width. Photos keep their album and cursor behind the preview. The guide has four cards per topic and works without a phone.
 
 ### Test coverage
 
@@ -158,7 +161,7 @@ The runtime needs the manifest, root Luau modules, `service/`, `ui/`, and `trans
 | `test_cache.lua`, `test_navigation_cache.lua` | Freshness, refresh failures, restoration, phone isolation, memory limits, and missing previews. |
 | `test_errors.lua`, `test_service.lua` | API states, polling, snapshots, commands, timeouts, and no automatic resend. |
 | `test_optimizations.lua`, `test_warmup.lua` | Coalesced reads, duplicate snapshots, and limited warmup without polling hidden sections. |
-| `test_pages.lua`, `test_panel.lua`, `test_setup.lua` | Pagination, confirmations, phone selection, setup, and explicit actions. |
+| `test_pages.lua`, `test_panel.lua`, `test_setup.lua` | Pagination, one-click actions, duplicate guards, phone selection, and setup. |
 | `test_compat.lua`, `test_widget.lua` | UI structure, theme roles, orientation, battery, and display settings. |
 | `test_portable.lua` | Argument-list process launches and executable path handling. |
 

@@ -126,42 +126,41 @@ onClose()
 onOpen()
 assert(last("page").value.offset == offset and key("page-item-camera-page2"))
 
--- Returning to a dialog keeps its cursor rather than dropping to the thread list.
+-- The two message panes retain separate cursors with just one active read.
 onNavigate("messages")
+respond({ items = { { id = "first", title = "First page", kind = "sms" } }, more = true })
+key("threads-pager-next").props.onClick()
+assert(last("page").value.thread == nil and last("page").value.offset == 1)
 respond({ items = { { id = "thread", title = "Alice", kind = "sms" } } })
-key("page-item-thread").props.onClick()
-assert(last("page").value.thread == "thread")
-respond({ items = { { id = "sms", title = "Message", text = "Retained message" } } })
+local leftKey = last("page").value.key
+local oldLeftClick = key("thread-item-thread").props.onClick
+oldLeftClick()
+assert(last("page").value.thread == "thread" and last("page").value.offset == 0 and key("thread-item-thread"))
+respond({ items = { { id = "older", title = "Older", date = 20 } }, more = true })
+key("pager-next").props.onClick()
+assert(last("page").value.before == 20 and last("page").value.before_id == "older")
+respond({ items = { { id = "sms", title = "Message", subtitle = "Retained message" } } })
 onNavigate("apps")
 onNavigate("messages")
-assert(last("page").value.thread == "thread" and key("back-to-threads"))
-assert(key("page-item-sms"))
+assert(last("page").value.thread == "thread" and last("page").value.before == 20)
+assert(key("threads-pager-prev") and key("thread-item-thread") and key("page-item-sms"))
 noLoading()
 
--- A pending confirmation must never be restored along with a dialog.
+-- Returning to a section must not replay an action or revive an old click.
 key("back-to-threads").props.onClick()
+assert(last("page").value.key == leftKey and last("page").value.offset == 1)
 respond({ items = { { id = "thread", title = "Alice", kind = "sms" } } })
 onNavigate("calls")
-respond({ items = { { id = "call", title = "Caller", number = "123", date = 1 } }, dial = true })
-key("page-item-call").props.onClick()
-button("Call").props.onClick()
-assert(button("Confirm"))
-local actions = 0
-for _, command in ipairs(commands) do
-  if command.action == "page_action" then
-    actions = actions + 1
-  end
-end
+respond({
+  items = { { id = "call", title = "Caller", number = "123", date = 1 } }, dial = true,
+  active = { id = "incoming", state = "ringing" }, control = true,
+})
+local oldAnswer = key("active-answer").props.onClick
+assert(not last("page_action"))
 onNavigate("apps")
 onNavigate("calls")
-assert(not button("Confirm"))
-local afterActions = 0
-for _, command in ipairs(commands) do
-  if command.action == "page_action" then
-    afterActions = afterActions + 1
-  end
-end
-assert(actions == afterActions)
+oldAnswer()
+assert(key("active-answer") and not last("page_action"))
 
 -- Switching phones must not borrow One's search, cursor or response for Two.
 onNavigate("home")
@@ -170,6 +169,16 @@ local chooser = find(function(n)
 end)
 assert(chooser, "phone selector must exist")
 chooser.props.onChange(1)
+onNavigate("messages")
+assert(last("page").device == "two" and not key("thread-item-thread") and not key("page-item-sms"))
+local beforeOldList = #commands
+oldLeftClick()
+assert(#commands == beforeOldList, "an old callback must not read a thread from another phone")
+onNavigate("calls")
+respond({ items = {}, active = { id = "incoming", state = "ringing" }, control = true })
+local beforeAbandoned = #commands
+oldAnswer()
+assert(#commands == beforeAbandoned, "an old call button must not act on either phone")
 onNavigate("apps")
 assert(last("page").device == "two" and last("page").value.search == "")
 assert(not key("page-item-one-app") and not key("page-item-camera-page2"))

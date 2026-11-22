@@ -1,302 +1,250 @@
 --!nonstrict
--- Phone and session controls. Unknown state must not be represented as off.
+-- The controls reflect the selected phone. Unknown state is not treated as off.
 local palette = require("./palette.luau")
+
 local M = {}
+local gap, padding = 6, 10
+local chipDefinitions = {
+  { id = "dnd", title = "controls.dnd", icon = "moon" },
+  { id = "flashlight", title = "controls.flashlight", icon = "bolt" },
+  { id = "wifi", title = "controls.wifi", icon = "wifi" },
+  { id = "bluetooth", title = "controls.bluetooth", icon = "bluetooth" },
+  { id = "hotspot", title = "controls.hotspot", icon = "world" },
+}
+local ringerDefinitions = {
+  { id = "ring", title = "controls.ring", icon = "volume", width = 72 },
+  { id = "vibrate", title = "controls.vibrate", icon = "device-mobile-vibration", width = 104 },
+  { id = "silent", title = "common.silent", icon = "volume-off", width = 96 },
+}
+local sessionDefinitions = {
+  { id = "pc_audio", title = "sessions.pc_audio_short", hint = "sessions.pc_audio_caption", icon = "speakerphone" },
+  { id = "watch", title = "sessions.watch_short", hint = "sessions.watch_caption", icon = "device-tv" },
+  { id = "phone_audio", title = "sessions.phone_audio_short", hint = "sessions.phone_audio_caption", icon = "headphones" },
+}
+local phaseKeys = {
+  preparing = "sessions.preparing", asking = "sessions.asking", watching = "sessions.watching",
+  playing = "sessions.playing", enabled = "sessions.enabled",
+}
+
+local function splitWidth(width, count, index)
+  local available = width - gap * (count - 1)
+  return math.floor(available / count) + (index <= available % count and 1 or 0)
+end
+
 function M.new(model, components, actions)
-  local geometry = require("./components.luau").layout
-  local activeSession = components.activeSession
-  local label = components.label
-  local send = actions.send
-  local render = actions.render
-  local function controlsCard(phone, online)
+  local label, send, render = components.label, actions.send, actions.render
+
+  local function phoneState(phone)
     local controls = phone and phone.controls
-    local state = controls and controls.state
-    local allowed = controls and controls.allowed or {}
-    local rows = {
-      ui.row({ width = 244, height = 28, gap = 5, align = "center" }, {
-        ui.label({
-          text = noctalia.tr("controls.title"),
-          maxWidth = 211,
-          maxLines = 1,
-          fontFamily = "sans-serif",
-          fontSize = 12,
-          fontWeight = "bold",
-          flexGrow = 1,
-        }),
-        ui.button({
-          glyph = "external-link",
-          width = 28,
-          height = 28,
-          controlSize = "sm",
-          variant = "ghost",
-          tooltip = noctalia.tr("common.open_app"),
-          onClick = function()
-            send("open")
-          end,
-        }),
-      }),
-    }
-    local chips = {}
-    for _, def in ipairs({
-      { "dnd", noctalia.tr("controls.dnd"), "moon" },
-      { "flashlight", noctalia.tr("controls.flashlight"), "bolt" },
-      { "wifi", noctalia.tr("controls.wifi"), "wifi" },
-      { "bluetooth", noctalia.tr("controls.bluetooth"), "bluetooth" },
-      { "hotspot", noctalia.tr("controls.hotspot"), "world" },
-    }) do
-      local id, title, glyph = def[1], def[2], def[3]
-      local active = type(state) == "table" and state[id] == true
-      local known = type(state) == "table" and type(state[id]) == "boolean"
-      local enabled = online
-        and not model.snapshot.controlBusy
-        and allowed[id] == true
-        and (known or id == "hotspot")
-      local reason = not online and noctalia.tr("common.phone_offline")
-        or (
-          not controls and noctalia.tr("controls.update_required")
-          or (
-            not allowed[id] and noctalia.tr("controls.permission")
-            or (
-              id == "hotspot" and noctalia.tr("controls.hotspot_hint")
-              or (not known and noctalia.tr("controls.unknown") or title)
-            )
-          )
-        )
-      table.insert(
-        chips,
-        ui.column({
-          key = "control-" .. id,
-          width = 44,
-          height = 54,
-          gap = 5,
-          padding = 4,
-          radius = 10,
-          align = "center",
-          justify = "center",
-          opacity = enabled and 1 or 0.45,
-          fill = active and "primary/0.25" or palette("raised"),
-          tooltip = reason,
-          onClick = enabled and function()
-            if id == "wifi" and active then
-              model.confirmWifi = phone.id
-              model.hotspotMenu = nil
-              render()
-            elseif id == "hotspot" then
-              model.hotspotMenu = phone.id
-              model.confirmWifi = nil
-              render()
-            else
-              send("phone_toggle", phone.id, { id = id, on = not active })
-            end
-          end or nil,
-        }, {
-          ui.glyph({
-            name = glyph,
-            size = 17,
-            color = active and "primary" or "on_surface_variant",
-          }),
-          label(title, 9, "on_surface_variant", false, 36),
-        })
-      )
-    end
-    table.insert(rows, ui.row({ width = 244, gap = 4, justify = "center" }, chips))
-    if phone and model.confirmWifi == phone.id then
-      table.insert(rows, label(noctalia.tr("controls.wifi_confirmation"), 10, "primary"))
-      table.insert(
-        rows,
-        ui.row({ gap = 5 }, {
-          ui.button({
-            text = noctalia.tr("common.cancel"),
-            controlSize = "sm",
-            variant = "ghost",
-            onClick = function()
-              model.confirmWifi = nil
-              render()
-            end,
-          }),
-          ui.button({
-            text = noctalia.tr("controls.turn_off"),
-            controlSize = "sm",
-            variant = "destructive",
-            enabled = online and allowed.wifi == true and not model.snapshot.controlBusy,
-            onClick = function()
-              model.confirmWifi = nil
-              send("phone_toggle", phone.id, { id = "wifi", on = false, confirm_disconnect = true })
-              render()
-            end,
-          }),
-        })
-      )
-    elseif phone and model.hotspotMenu == phone.id then
-      local buttons = {}
-      for _, choice in ipairs({
-        { noctalia.tr("controls.on"), true },
-        { noctalia.tr("controls.off"), false },
-      }) do
-        local on = choice[2]
-        table.insert(
-          buttons,
-          ui.button({
-            text = choice[1],
-            controlSize = "sm",
-            variant = "secondary",
-            enabled = online and allowed.hotspot == true and not model.snapshot.controlBusy,
-            onClick = function()
-              model.hotspotMenu = nil
-              send("phone_toggle", phone.id, { id = "hotspot", on = on })
-              render()
-            end,
-          })
-        )
-      end
-      table.insert(
-        buttons,
-        ui.button({
-          glyph = "x",
-          controlSize = "sm",
-          variant = "ghost",
-          onClick = function()
-            model.hotspotMenu = nil
-            render()
-          end,
-        })
-      )
-      table.insert(rows, ui.row({ gap = 5 }, buttons))
-    end
-    local session = phone and model.snapshot.sessions and model.snapshot.sessions[phone.id]
-    local phases = {
-      preparing = noctalia.tr("sessions.preparing"),
-      asking = noctalia.tr("sessions.asking"),
-      watching = noctalia.tr("sessions.watching"),
-      playing = noctalia.tr("sessions.playing"),
-      enabled = noctalia.tr("sessions.enabled"),
-    }
-    for _, def in ipairs({
-      { noctalia.tr("sessions.pc_audio"), "volume", "pc_audio" },
-      { noctalia.tr("sessions.watch"), "video", "watch" },
-      { noctalia.tr("sessions.phone_audio"), "headphones", "phone_audio" },
-    }) do
-      local kind = def[3]
-      local active = activeSession(session, kind)
-      local enabled = not model.snapshot.sessionBusy
-        and session
-        and (active or (online and session.allowed[kind]))
-      local text = active and (phases[session[kind]] or session[kind])
-        or (not enabled and noctalia.tr("sessions.unavailable") or "")
-      table.insert(
-        rows,
-        ui.row({
-          key = "session-row-" .. kind,
-          width = 244,
-          height = 32,
-          gap = 6,
-          padding = 3,
-          radius = 9,
-          fill = palette("raised"),
-          tooltip = kind == "watch" and noctalia.tr("sessions.watch_hint")
-            or noctalia.tr("sessions.control_hint"),
-        }, {
-          ui.glyph({ name = def[2], size = 15, color = "on_surface_variant" }),
-          ui.column({ gap = 0, flexGrow = 1, height = 26, align = "start", justify = "center" }, {
-            ui.column({ height = 14, align = "start", justify = "center" }, {
-              ui.label({
-                text = def[1],
-                fontFamily = "sans-serif",
-                fontSize = 10,
-                maxWidth = 184,
-                maxLines = 1,
-              }),
-            }),
-            ui.column({
-              height = 12,
-              align = "start",
-              justify = "center",
-              visible = text ~= "",
-            }, {
-              ui.label({
-                text = text,
-                fontFamily = "sans-serif",
-                fontSize = 9,
-                maxWidth = 184,
-                maxLines = 1,
-                color = "on_surface_variant",
-              }),
-            }),
-          }),
-          ui.toggle({
-            key = "session-" .. kind,
-            checked = active,
-            enabled = enabled == true,
-            width = 30,
-            height = 18,
-            onChange = function(value)
-              if enabled then
-                send("session", phone.id, { kind = kind, on = value == "true" or value == true })
-              end
-            end,
-          }),
-        })
-      )
-    end
-    return ui.column({
-      key = "phone-controls",
-      width = 260,
-      gap = 7,
-      padding = 8,
-      radius = 14,
-      align = "start",
-      fill = palette("card", 0.75),
-    }, rows)
+    return controls and controls.state or {}, controls and controls.allowed or {}, controls
   end
 
-  local function ringerCard(phone, online)
-    local controls = phone and phone.controls
-    local mode = controls and controls.state and controls.state.ringer
+  local function ringerButtons(phone, online)
+    local state, allowed = phoneState(phone)
+    local mode = state.ringer
     local known = mode == "ring" or mode == "vibrate" or mode == "silent"
-    local allowed = controls and controls.allowed and controls.allowed.ringer == true
-    local enabled = online and allowed and known and not model.snapshot.controlBusy
-    local buttons = {}
-    for _, choice in ipairs({
-      { "ring", noctalia.tr("controls.ring") },
-      { "vibrate", noctalia.tr("controls.vibrate") },
-      { "silent", noctalia.tr("common.silent") },
-    }) do
-      local value, title = choice[1], choice[2]
-      table.insert(
-        buttons,
-        ui.button({
-          key = "ringer-" .. value,
-          text = title,
-          width = 80,
-          height = 32,
-          fontSize = 10,
-          controlSize = "sm",
-          variant = known and mode == value and "secondary" or "ghost",
-          enabled = enabled == true,
-          tooltip = not online and noctalia.tr("common.phone_offline")
-            or (
-              not allowed and noctalia.tr("controls.permission")
-              or (not known and noctalia.tr("controls.unknown") or title)
-            ),
-          onClick = enabled and function()
-            if mode ~= value then
-              send("phone_toggle", phone.id, { id = "ringer", mode = value })
-            end
-          end or nil,
-        })
-      )
+    local enabled = online and allowed.ringer == true and known and not actions.actionBusy("control")
+    local dispatch = actions.bindAction("control", phone and phone.id)
+    local buttons, width = {}, 6 + (#ringerDefinitions - 1) * 5
+    for i, def in ipairs(ringerDefinitions) do
+      local id, title = def.id, noctalia.tr(def.title)
+      buttons[i] = ui.button({
+        key = "ringer-" .. id,
+        text = title,
+        glyph = def.icon,
+        glyphSize = 13,
+        width = def.width,
+        height = 30,
+        fontSize = 10,
+        variant = known and mode == id and "primary" or "ghost",
+        enabled = enabled,
+        tooltip = not online and noctalia.tr("common.phone_offline")
+          or (not allowed.ringer and noctalia.tr("controls.permission"))
+          or (not known and noctalia.tr("controls.unknown")) or title,
+        onClick = enabled and function()
+          if mode ~= id then
+            dispatch({ id = "ringer", mode = id })
+          end
+        end or nil,
+      })
+      width = width + def.width
     end
     return ui.row({
-      key = "ringer-controls",
-      width = 260,
-      height = 40,
-      padding = 4,
-      gap = 6,
-      radius = 12,
-      fill = palette("card", 0.75),
-      align = "center",
+      key = "ringer-controls", width = width, height = 36, padding = 3, gap = 5, radius = 9,
+      align = "center", fill = palette("raised", 0.72),
     }, buttons)
   end
-  return { render = controlsCard, ringer = ringerCard }
+
+  local function sessionRow(phone, online, width)
+    local states = model.snapshot.sessions
+    local session = phone and states and states[phone.id]
+    local cards = {}
+    for i, def in ipairs(sessionDefinitions) do
+      local kind = def.id
+      local cardWidth = splitWidth(width, #sessionDefinitions, i)
+      local active = components.activeSession(session, kind)
+      local enabled = not model.snapshot.sessionBusy and session
+        and (active or (online and session.allowed and session.allowed[kind])) == true
+      local phase = active and phaseKeys[session[kind]]
+      local caption = noctalia.tr(phase or (enabled and def.hint or "sessions.unavailable"))
+      -- Reserve the native toggle's full width before measuring the text.
+      local textWidth = cardWidth - 80
+      cards[i] = ui.row({
+        key = "session-row-" .. kind,
+        width = cardWidth,
+        height = 46,
+        gap = 5,
+        padding = 6,
+        radius = 9,
+        align = "center",
+        fill = palette("raised", 0.62),
+        tooltip = kind == "watch" and noctalia.tr("sessions.watch_hint") or noctalia.tr("sessions.control_hint"),
+      }, {
+        ui.glyph({ name = def.icon, size = 18, color = active and "primary" or "on_surface_variant" }),
+        ui.column({ width = textWidth, gap = 1, justify = "center", align = "start" }, {
+          label(noctalia.tr(def.title), 10, "on_surface", true, textWidth),
+          label(caption, 9, "on_surface_variant", false, textWidth),
+        }),
+        ui.toggle({
+          key = "session-" .. kind,
+          checked = active,
+          enabled = enabled == true,
+          width = 40,
+          height = 18,
+          onChange = function(value)
+            if enabled then
+              send("session", phone.id, { kind = kind, on = value == "true" or value == true })
+            end
+          end,
+        }),
+      })
+    end
+    return ui.row({ key = "session-strip", width = width, height = 46, gap = gap }, cards)
+  end
+
+  local function chipRow(phone, online, width)
+    local state, allowed, controls = phoneState(phone)
+    local dispatch = actions.bindAction("control", phone and phone.id)
+    local busy = actions.actionBusy("control")
+    local scope = model.actionScope
+    local chips = {}
+    for i, def in ipairs(chipDefinitions) do
+      local id, title = def.id, noctalia.tr(def.title)
+      local active = state[id] == true
+      local known = type(state[id]) == "boolean"
+      local enabled = online and not busy and allowed[id] == true
+        and (known or id == "hotspot")
+      local reason = not online and noctalia.tr("common.phone_offline")
+        or (not controls and noctalia.tr("controls.update_required"))
+        or (not allowed[id] and noctalia.tr("controls.permission"))
+        or (busy and noctalia.tr("common.sending"))
+        or (id == "hotspot" and noctalia.tr("controls.hotspot_hint"))
+        or (id == "wifi" and active and noctalia.tr("controls.wifi_off_hint"))
+        or (not known and noctalia.tr("controls.unknown")) or title
+      local chipWidth = splitWidth(width, #chipDefinitions, i)
+      chips[i] = ui.row({
+        key = "control-" .. id,
+        width = chipWidth,
+        height = 34,
+        gap = 6,
+        paddingH = 6,
+        radius = 9,
+        align = "center",
+        justify = "center",
+        opacity = enabled and 1 or 0.5,
+        fill = active and "primary/0.20" or palette("raised", 0.62),
+        tooltip = reason,
+        onClick = enabled and function()
+          if id == "hotspot" then
+            if not model.opened or model.selected ~= phone.id or model.actionScope ~= scope
+              or actions.actionBusy("control") then return end
+            model.hotspotMenu = phone.id
+            render()
+          else
+            dispatch({ id = id, on = not active, confirm_disconnect = id == "wifi" and active or nil })
+          end
+        end or nil,
+      }, {
+        ui.glyph({ name = def.icon, size = 16, color = active and "primary" or "on_surface_variant" }),
+        label(title, 10, active and "primary" or "on_surface_variant", false, chipWidth - 34),
+      })
+    end
+    return ui.row({ key = "phone-switches", width = width, height = 34, gap = gap }, chips)
+  end
+
+  local function hotspotChoices(phone, online, width)
+    if not phone then
+      return nil
+    end
+    local _, allowed = phoneState(phone)
+    local row = { key = "hotspot-choices", width = width, height = 46, gap = gap, align = "center" }
+    if model.hotspotMenu == phone.id then
+      local buttons = {
+        label(noctalia.tr("controls.hotspot"), 11, "on_surface", true, width - 176),
+        ui.spacer({ flexGrow = 1 }),
+      }
+      local enabled = online and allowed.hotspot == true and not actions.actionBusy("control")
+      local dispatch = actions.bindAction("control", phone.id)
+      for _, on in ipairs({ true, false }) do
+        buttons[#buttons + 1] = ui.button({
+          key = on and "hotspot-on" or "hotspot-off",
+          text = noctalia.tr(on and "controls.on" or "controls.off"),
+          controlSize = "sm",
+          variant = "secondary",
+          enabled = enabled,
+          onClick = enabled and function()
+            if model.hotspotMenu == phone.id then dispatch({ id = "hotspot", on = on }) end
+          end or nil,
+        })
+      end
+      buttons[#buttons + 1] = components.smallButton(noctalia.tr("common.cancel"), function()
+        model.hotspotMenu = nil
+        render()
+      end)
+      return ui.row(row, buttons)
+    end
+  end
+
+  local function controlsCard(phone, online, width, height, settingsButton)
+    local innerWidth = width - 2 * padding
+    local ringer = ringerButtons(phone, online)
+    local titleWidth = innerWidth - 20 - ringer.props.width - 30 - 4 * gap
+      - (settingsButton and (36 + gap) or 0)
+    local heading = {
+      ui.glyph({ name = "volume", size = 20, color = "on_surface" }),
+      label(noctalia.tr("controls.sound_title"), 14, "on_surface", true, titleWidth),
+      ui.spacer({ flexGrow = 1 }),
+      ringer,
+      ui.button({
+        glyph = "external-link", width = 30, height = 30, variant = "ghost",
+        tooltip = noctalia.tr("common.open_app"),
+        onClick = function()
+          send("open")
+        end,
+      }),
+    }
+    if settingsButton then
+      heading[#heading + 1] = settingsButton
+    end
+    -- The hotspot picker uses the session row's slot to preserve the layout.
+    return ui.column({
+      key = "phone-controls",
+      width = width,
+      height = height,
+      padding = padding,
+      gap = gap,
+      radius = 14,
+      justify = "space_between",
+      fill = palette("card"),
+    }, {
+      ui.row({ width = innerWidth, height = 36, gap = gap, align = "center" }, heading),
+      ui.box({ width = innerWidth, height = 1, fill = palette("muted_border", 0.4) }),
+      hotspotChoices(phone, online, innerWidth) or sessionRow(phone, online, innerWidth),
+      chipRow(phone, online, innerWidth),
+    })
+  end
+
+  return { render = controlsCard }
 end
+
 return M

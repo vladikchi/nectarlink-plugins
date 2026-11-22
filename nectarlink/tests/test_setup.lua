@@ -66,8 +66,8 @@ local used = card.props.padding * 2 + (#card.children - 1) * card.props.gap
 for _, child in ipairs(card.children) do
   used = used + (child.props.height or (child.kind == "label" and 14 or 0))
 end
-assert(used <= 398, "setup content exceeds fixed panel height")
-assert(tree.props.width == 828 and tree.props.height == 438)
+assert(used <= card.props.height, "setup content exceeds fixed panel height")
+assert(tree.props.width == 1072 and tree.props.height == 528)
 assert(copies == 0, "rendering the command must not modify the clipboard")
 local install = "curl -fsSL https://github.com/vladikchi/nectarlink-noctalia/releases/latest/download/install.sh | sh"
 assert(find("text", install))

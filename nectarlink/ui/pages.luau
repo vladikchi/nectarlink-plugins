@@ -1,662 +1,215 @@
 --!nonstrict
--- Pages and confirmations share model-owned drafts and navigation without copying them.
+-- Shared section frame: give every page the same height without a global title bar.
 local palette = require("./palette.luau")
+local geometry = require("./components.luau").layout
+local Guide = require("./page_guide.luau")
+local Forms = require("./page_forms.luau")
+local Calls = require("./page_calls.luau")
+local Messages = require("./page_messages.luau")
 local M = {}
+local metrics = geometry.page
+local icons = {
+  messages = "message", calls = "phone", photos = "photo",
+  apps = "apps", deck = "puzzle", guide = "book",
+}
+
 function M.new(model, components, actions, items)
-  local geometry = require("./components.luau").layout
-  local preview = components.preview
   local label = components.label
-  local smallButton = components.smallButton
-  local pager = components.pager
-  local pageNote = components.pageNote
-  local titles = components.titles
-  local directions = components.directions
-  local render = actions.render
-  local loadPage = actions.loadPage
-  local confirmAction = actions.confirmAction
-  local dispatchPageAction = actions.dispatchPageAction
-  local renderPageItems = items.render
-  local function renderConfirmation(add, online, width)
-    add(
-      label(
-        noctalia.tr("confirm.title", { action = model.pendingAction.title }),
-        14,
-        "primary",
-        true,
-        width - 12
-      )
-    )
-    add(ui.label({
-      text = preview(model.pendingAction.text or model.pendingAction.id, 180),
-      fontFamily = "sans-serif",
-      height = 68,
-      maxLines = 3,
-      maxWidth = width - 12,
-      fontSize = 13,
-      color = "on_surface",
-    }))
-    add(label(noctalia.tr("confirm.target"), 12, "on_surface", false, width - 12))
-    add(ui.row({ gap = 8 }, {
-      smallButton(noctalia.tr("common.cancel"), function()
-        model.pendingAction = nil
-        render()
-      end),
-      smallButton(noctalia.tr("common.confirm"), function()
-        -- Use the device and text captured when the confirmation opened.
-        local actionToConfirm = model.pendingAction
-        model.pendingAction = nil
-        dispatchPageAction(
-          actionToConfirm.action,
-          actionToConfirm.id,
-          actionToConfirm.text,
-          actionToConfirm.recipients,
-          actionToConfirm.device
-        )
-        render()
-      end, not model.snapshot.pageActionBusy and (online or model.page == "deck")),
-    }))
+  local preview = components.preview
+  local note = components.pageNote
+  local forms = Forms.new(model, components, actions)
+  local calls = Calls.new(model, components, actions, items)
+  local messages = Messages.new(model, components, actions, forms, items)
+
+  local function clearDetail()
+    model.detail = nil
+    model.detailPart = 0
+    actions.render()
   end
 
-  local function renderDetailPage(add, width)
-    if model.page == "photos" then
-      add(ui.column({
-        key = "photo-preview",
-        width = width - 12,
-        height = 350,
-        padding = 4,
-        radius = 10,
-        align = "center",
-        justify = "center",
-        tooltip = type(model.detail.title) == "string" and model.detail.title
-          or noctalia.tr("pages.photos"),
+  local function headingButton(key, glyph, hint, onClick, text, width, enabled)
+    return ui.button({
+      key = key, glyph = glyph, glyphSize = 17,
+      text = text, tooltip = noctalia.tr(hint), width = width or 34, height = 34,
+      controlSize = "sm", fontSize = text and 13 or nil,
+      variant = text and "primary" or "ghost",
+      enabled = enabled ~= false,
+      onClick = enabled ~= false and onClick or nil,
+    })
+  end
+
+  local function header(phone, online, width, view, settings, refresh)
+    local page, detail = model.page, model.detail
+    local title = components.titles[page]
+    local subtitle = noctalia.tr("pages." .. page .. "_hint")
+    local leading = components.iconBadge(icons[page], 40, nil, nil, 21)
+    local target = model.selected
+    if detail and page == "photos" then
+      title, subtitle = preview(detail.title, 62), title
+      if title == "" then title = subtitle end
+      leading = headingButton("back-to-list", "chevron-left", "common.back_to_list", clearDetail)
+    end
+
+    local trailing, reserved = {}, 0
+    local function append(node, nodeWidth)
+      trailing[#trailing + 1] = node
+      reserved = reserved + (nodeWidth or node.props.width) + 8
+    end
+    if phone and page ~= "guide" then
+      local status = online and noctalia.tr("connection.connected")
+        or (model.snapshot.state == "ready" and noctalia.tr("common.phone_offline")
+          or noctalia.tr("common.no_connection"))
+      append(ui.row({
+        key = "page-phone", gap = 6, height = 26, paddingH = 8, radius = 9,
+        fill = palette("raised", 0.72), align = "center",
+        tooltip = preview(phone.name, 96) .. " · " .. status,
       }, {
-        type(model.detail.thumbnailPath) == "string" and ui.image({
-          path = model.detail.thumbnailPath,
-          width = width - 20,
-          height = 342,
-          fit = "contain",
-          radius = 6,
-        }) or label(noctalia.tr("photos.no_thumbnail"), 12, "on_surface_variant"),
-      }))
-    else
-      add(smallButton(noctalia.tr("common.back"), function()
-        model.detail = nil
-        render()
-      end))
-      add(label(model.detail.title, 14, "primary", true))
-      local fullText = type(model.detail.subtitle) == "string" and model.detail.subtitle or ""
-      -- utf8.offset supplies byte boundaries for a 220-character page.
-      local firstByte = utf8.offset(fullText, model.detailPart * 220 + 1) or (#fullText + 1)
-      local nextByte = utf8.offset(fullText, (model.detailPart + 1) * 220 + 1) or (#fullText + 1)
-      add(ui.label({
-        text = fullText:sub(firstByte, nextByte - 1),
-        fontFamily = "sans-serif",
-        fontSize = 14,
-        height = 220,
-        maxLines = 10,
-        maxWidth = width - 12,
-        color = "on_surface",
-      }))
-      add(ui.spacer({ flexGrow = 1 }))
-      add(pager(width - 12, model.detailPart + 1, function()
-        model.detailPart = math.max(0, model.detailPart - 1)
-        render()
-      end, function()
-        model.detailPart = model.detailPart + 1
-        render()
-      end, model.detailPart > 0, nextByte <= #fullText, "text-pagination"))
+        ui.box({ width = 6, height = 6, radius = 3, fill = online and "primary" or "on_surface_variant" }),
+        label(phone.name, 11, "on_surface_variant", false, 166),
+      }), 194)
     end
-  end
-
-  local function renderMessagesToolbar(add, online, width, data)
-    local draftKey = (model.selected or "none")
-      .. "|"
-      .. (model.thread and model.thread.id or "new")
-    local draft = model.pageDrafts[draftKey] or ""
-    if model.thread then
-      if model.thread.id == "" then
-        add(ui.input({
-          key = "sms-recipient",
-          value = model.recipient,
-          placeholder = noctalia.tr("messages.recipient"),
-          height = 28,
-          controlSize = "sm",
-          onChange = function(value)
-            model.recipient = value
-          end,
-        }))
-      end
-      add(ui.row({ key = "message-composer", width = width - 12, gap = 6, height = 32 }, {
-        ui.input({
-          key = "message-draft-" .. draftKey,
-          value = draft,
-          placeholder = noctalia.tr("messages.draft"),
-          controlSize = "sm",
-          height = 28,
-          flexGrow = 1,
-          onChange = function(value)
-            model.pageDrafts[draftKey] = value
-            render()
-          end,
-        }),
-        smallButton(
-          noctalia.tr("common.send"),
-          function()
-            local recipients = model.thread.id == "" and { model.recipient }
-              or model.thread.addresses
-            confirmAction(
-              model.thread.kind == "chat" and "reply" or "sms",
-              model.thread.id,
-              draft,
-              recipients,
-              noctalia.tr("confirm.message", { title = preview(model.thread.title, 25) })
-            )
-          end,
-          online
-            and not model.snapshot.pageActionBusy
-            and draft ~= ""
-            and (model.thread.id == "" and model.recipient ~= "" or data and data.reply == true)
-        ),
-        smallButton(noctalia.tr("common.clear"), function()
-          model.pageDrafts[draftKey] = ""
-          render()
-        end, not model.snapshot.pageActionBusy),
-      }))
+    if page == "messages" then
+      append(headingButton("new-sms", "message-plus", "messages.new_sms", function()
+        if model.selected ~= target then return end
+        actions.selectThread({ id = "", kind = "sms", title = noctalia.tr("messages.new_sms"), addresses = {} })
+      end, noctalia.tr("messages.new_sms"), 142, phone ~= nil and (not model.thread or model.thread.id ~= "")))
+    elseif page == "photos" and detail then
+      local dispatch = actions.bindAction("page", target)
+      local waiting, waitingFor = actions.actionBusy("page")
+      append(headingButton("download-photo", "download", "photos.download", function()
+        if model.detail == detail then dispatch({ action = "photo", id = detail.id }) end
+      end, noctalia.tr(waitingFor == "photo" and "common.sending" or "photos.download"), 185, online and not waiting
+        and type(detail.id) == "string" and detail.id ~= ""))
     end
-  end
-
-  local function renderCallsToolbar(add, online, width, data)
-    local draftKey = (model.selected or "none") .. "|dial"
-    if model.dialOpen then
-      add(ui.row({ key = "dial-toolbar", width = width - 12, gap = 6, height = 32 }, {
-        ui.input({
-          key = "dial-number-" .. tostring(model.selected),
-          value = model.pageDrafts[draftKey] or "",
-          placeholder = noctalia.tr("calls.number"),
-          flexGrow = 1,
-          controlSize = "sm",
-          height = 28,
-          onChange = function(value)
-            model.pageDrafts[draftKey] = value
-            render()
-          end,
-        }),
-        smallButton(
-          noctalia.tr("calls.dial"),
-          function()
-            confirmAction(
-              "dial",
-              nil,
-              model.pageDrafts[draftKey],
-              nil,
-              noctalia.tr("confirm.dial", { number = preview(model.pageDrafts[draftKey], 32) })
-            )
-          end,
-          online
-            and data
-            and data.dial == true
-            and (model.pageDrafts[draftKey] or "") ~= ""
-            and not model.snapshot.pageActionBusy
-        ),
-      }))
-    end
-    if
-      data
-      and type(data.active) == "table"
-      and type(data.active.state) == "string"
-      and data.active.state ~= "ended"
-    then
-      local activeCall = data.active
-      local buttons = {
-        label(
-          (
-            type(activeCall.name) == "string" and activeCall.name
-            or (
-              type(activeCall.number) == "string" and activeCall.number or noctalia.tr("calls.call")
-            )
-          )
-            .. " · "
-            .. (directions[activeCall.state] or activeCall.state),
-          12,
-          "primary"
-        ),
-      }
-      for _, definition in ipairs({
-        { "answer", noctalia.tr("calls.answer") },
-        { "decline", noctalia.tr("calls.end") },
-        { "silence", noctalia.tr("common.silent") },
-      }) do
-        if definition[1] == "decline" or activeCall.state == "ringing" then
-          table.insert(
-            buttons,
-            smallButton(definition[2], function()
-              confirmAction(definition[1], activeCall.id, nil, nil, definition[2])
-            end, data.control == true and not model.snapshot.pageActionBusy)
-          )
-        end
-      end
-      add(ui.row({ key = "active-call-toolbar", gap = 5, height = 32 }, buttons))
-    end
-  end
-
-  local function renderAppsToolbar(add, width, refresh)
-    local function findApps()
-      model.search = model.searchDraft
-      model.offset = 0
-      model.cursors = {}
-      refresh()
-    end
-    add(ui.row({ key = "app-toolbar", width = width - 12, gap = 6, height = 32 }, {
-      ui.input({
-        key = "app-search",
-        value = model.searchDraft,
-        placeholder = noctalia.tr("apps.search"),
-        flexGrow = 1,
-        controlSize = "sm",
-        height = 28,
-        onChange = function(value)
-          model.searchDraft = value
-        end,
-        onSubmit = findApps,
-      }),
-      smallButton(noctalia.tr("common.search"), findApps),
-    }))
-  end
-
-  local function renderPhotoAlbums(add, width, data, refresh)
-    if not data or type(data.albums) ~= "table" then
-      return
-    end
-    local options, albumIds, selectedIndex = { noctalia.tr("photos.all_albums") }, { false }, 0
-    for _, photoAlbum in ipairs(data.albums) do
-      table.insert(options, photoAlbum.name or photoAlbum.id)
-      table.insert(albumIds, photoAlbum.id)
-      if photoAlbum.id == model.album then
-        selectedIndex = #options - 1
-      end
-    end
-    add(ui.select({
-      key = "photo-album",
-      width = width - 12,
-      options = options,
-      selectedIndex = selectedIndex,
-      controlSize = "sm",
-      height = 28,
-      onChange = function(value)
-        -- Noctalia indices are zero-based; albumIds is a one-based Lua array.
-        model.album = albumIds[(tonumber(value) or 0) + 1] or nil
-        model.before = nil
-        model.beforeId = nil
-        model.offset = 0
-        model.cursors = {}
-        refresh()
-      end,
-    }))
-  end
-
-  local function renderPageHeading(phone, online, width, refresh)
-    local heading = {}
-    if (model.page == "calls" and model.dialOpen) or (model.page == "photos" and model.detail) then
-      table.insert(
-        heading,
-        ui.button({
-          key = "back-to-list",
-          glyph = "chevron-left",
-          width = 28,
-          height = 28,
-          variant = "ghost",
-          tooltip = noctalia.tr("common.back_to_list"),
-          onClick = function()
-            model.dialOpen = false
-            model.detail = nil
-            model.pendingAction = nil
-            render()
-          end,
-        })
-      )
-    end
-    if model.page == "messages" and model.thread then
-      table.insert(
-        heading,
-        ui.button({
-          key = "back-to-threads",
-          glyph = "chevron-left",
-          width = 28,
-          height = 28,
-          variant = "ghost",
-          tooltip = noctalia.tr("messages.back_to_threads"),
-          onClick = function()
-            model.thread = nil
-            model.offset = 0
-            model.cursors = {}
-            model.before = nil
-            model.pageKey = nil
-            render()
-          end,
-        })
-      )
-    end
-    table.insert(
-      heading,
-      label(
-        model.page == "messages" and model.thread and preview(model.thread.title, 28)
-          or titles[model.page],
-        16,
-        "on_surface",
-        true
-      )
-    )
-    table.insert(heading, ui.spacer({ flexGrow = 1 }))
-    if phone and model.page ~= "guide" then
-      table.insert(heading, label(preview(phone.name, 36), 11, "on_surface_variant"))
-    end
-    if model.page == "messages" and not model.thread then
-      table.insert(
-        heading,
-        ui.button({
-          key = "new-sms",
-          glyph = "message-plus",
-          width = 28,
-          height = 28,
-          variant = "ghost",
-          tooltip = noctalia.tr("messages.new_sms"),
-          onClick = function()
-            model.thread =
-              { id = "", kind = "sms", title = noctalia.tr("messages.new_sms"), addresses = {} }
-            model.offset = 0
-            model.before = nil
-            model.cursors = {}
-            model.pageKey = nil
-            render()
-          end,
-        })
-      )
-    end
-    local view = model.pageView
-    if model.page == "calls" and not model.dialOpen and not model.pendingAction then
-      table.insert(
-        heading,
-        ui.button({
-          key = "new-call",
-          glyph = "phone-plus",
-          width = 28,
-          height = 28,
-          variant = "ghost",
-          tooltip = noctalia.tr("calls.new_call"),
-          onClick = function()
-            model.dialOpen = true
-            render()
-          end,
-        })
-      )
-    end
-    if model.page == "photos" and model.detail and not model.pendingAction then
-      table.insert(
-        heading,
-        ui.button({
-          key = "download-photo",
-          glyph = "download",
-          width = 28,
-          height = 28,
-          variant = "ghost",
-          tooltip = noctalia.tr("photos.download"),
-          enabled = online and not model.snapshot.pageActionBusy,
-          onClick = online
-              and not model.snapshot.pageActionBusy
-              and function()
-                confirmAction(
-                  "photo",
-                  model.detail.id,
-                  nil,
-                  nil,
-                  noctalia.tr("confirm.download", {
-                    title = type(model.detail.title) == "string" and model.detail.title
-                      or noctalia.tr("pages.photos"),
-                  })
-                )
-              end
-            or nil,
-        })
-      )
-    end
-    if
-      view
-      and view.key == model.pageKey
-      and view.status == "ready"
-      and (view.refreshing or view.stale)
-    then
-      local errorText
+    if view and view.status == "ready" and (view.refreshing or view.stale) then
+      local reason
       if view.error then
-        local title, text = components.failure(view.error)
-        errorText = title .. ". " .. text
+        local name, description = components.failure(view.error)
+        reason = name .. ". " .. description
       end
-      table.insert(
-        heading,
-        ui.row({
-          width = 16,
-          height = 18,
-          tooltip = view.refreshing and noctalia.tr("cache.refreshing")
-            or errorText
-            or (view.refreshFailed and noctalia.tr("cache.refresh_failed"))
-            or noctalia.tr("cache.saved"),
-        }, {
-          ui.glyph({
-            name = view.refreshing and "refresh" or "clock",
-            size = 14,
-            color = view.error and "error" or "on_surface_variant",
-          }),
-        })
-      )
+      local color = view.error and "error" or "on_surface_variant"
+      append(ui.row({
+        key = "page-cache", height = 26, gap = 5, paddingH = 8, radius = 9,
+        align = "center", fill = palette("raised", 0.72),
+        tooltip = view.refreshing and noctalia.tr("cache.refreshing") or reason
+          or noctalia.tr(view.refreshFailed and "cache.refresh_failed" or "cache.saved"),
+      }, {
+        ui.glyph({
+          name = view.refreshing and "refresh" or "clock",
+          size = 14, color = color,
+        }),
+        label(noctalia.tr(view.refreshing and "cache.updating_badge" or "cache.saved_badge"), 11, color, false, 83),
+      }), 118)
     end
-    if model.page ~= "guide" then
-      table.insert(
-        heading,
-        ui.button({
-          key = "refresh-page",
-          glyph = "refresh",
-          controlSize = "sm",
-          height = 28,
-          width = 28,
-          variant = "ghost",
-          tooltip = noctalia.tr("common.refresh_page"),
-          enabled = phone ~= nil,
-          onClick = function()
-            refresh(true)
-          end,
-        })
-      )
+    if page ~= "guide" and (model.snapshot.error or (view and view.error)) then
+      append(headingButton("help-fork", "book", "common.fork_help", function()
+        actions.send("open_fork")
+      end))
     end
-    return ui.row(
-      { key = "page-heading", width = width - 12, gap = 8, align = "center", height = 32 },
-      heading
-    )
+    if page ~= "guide" then
+      append(headingButton("refresh-page", "refresh", "common.refresh_page", function()
+        refresh(true)
+      end, nil, nil, phone ~= nil))
+    end
+    if settings then append(settings) end
+
+    local textWidth = width - reserved - 64
+    local children = {
+      leading,
+      ui.column({ gap = 0 }, {
+        label(title, 20, "on_surface", true, textWidth),
+        label(subtitle, 11, "on_surface_variant", false, textWidth),
+      }),
+      ui.spacer({ flexGrow = 1 }),
+    }
+    for _, node in ipairs(trailing) do children[#children + 1] = node end
+    return ui.row({
+      key = "page-heading", width = width, height = metrics.heading, gap = 8, align = "center",
+    }, children)
   end
 
-  local function sidebarPage(phone, online, width)
-    local rows = {}
-    local function add(node)
-      table.insert(rows, node)
-    end
+  local function photoPreview(width)
+    local detail = model.detail
+    return ui.column({
+      key = "photo-preview", width = width, height = metrics.body, padding = 8,
+      radius = 12, fill = palette("raised", 0.72), align = "center", justify = "center",
+    }, {
+      type(detail.thumbnailPath) == "string" and ui.image({
+        path = detail.thumbnailPath, width = width - 16, height = metrics.body - 16,
+        fit = "contain", radius = 8,
+      }) or label(noctalia.tr("photos.no_thumbnail"), 13, "on_surface_variant", false, width - 32),
+    })
+  end
+
+  local function renderPage(phone, online, width, settings)
+    local inner = width - 2 * metrics.padding
+    local view = model.pageView
+    if view and view.key ~= model.pageKey then view = nil end
+    local data = view and view.status == "ready" and view.data or nil
     local function refresh(force)
       model.pageKey = nil
-      loadPage(force)
-      render()
+      actions.loadPage(force)
+      actions.render()
     end
-    add(renderPageHeading(phone, online, width, refresh))
-    if model.pendingAction then
-      renderConfirmation(add, online, width)
-    elseif model.page == "guide" then
-      local tabs = {}
-      for i, title in ipairs({
-        noctalia.tr("guide.panel"),
-        noctalia.tr("guide.sections"),
-        noctalia.tr("guide.help"),
-        noctalia.tr("guide.cache"),
-        noctalia.tr("guide.compatibility"),
-      }) do
-        table.insert(
-          tabs,
-          ui.button({
-            key = "guide-tab-" .. i,
-            text = title,
-            controlSize = "sm",
-            height = 28,
-            variant = model.guideTopic == i and "secondary" or "ghost",
-            onClick = function()
-              model.guideTopic = i
-              render()
-            end,
-          })
-        )
+    local rows = {}
+    local function add(node)
+      if node then rows[#rows + 1] = node end
+    end
+
+    local page = model.page
+    local function stateNote(noteWidth, state, key)
+      local failed = state and state.status ~= "loading"
+      local reason = model.snapshot.error or (state and state.error)
+        or (state and state.status == "unsupported" and "unsupported")
+      local title, description
+      if reason then
+        title, description = components.failure(reason)
+      elseif not phone then
+        title, description = noctalia.tr("pages.no_phone"), noctalia.tr("pages.no_phone_hint")
+      elseif failed then
+        title, description = noctalia.tr("pages.failed"), noctalia.tr("pages.retry_hint")
+      else
+        title, description = noctalia.tr("pages.loading"), noctalia.tr("pages.loading_hint")
       end
-      add(ui.row({ gap = 6, height = 30 }, tabs))
-      local notes = {
-        {
-          {
-            noctalia.tr("guide.widget.title"),
-            noctalia.tr("guide.widget.body"),
-            "device-mobile",
-          },
-          {
-            noctalia.tr("guide.home.title"),
-            noctalia.tr("guide.home.body"),
-            "home",
-          },
-          {
-            noctalia.tr("guide.settings.title"),
-            noctalia.tr("guide.settings.body"),
-            "settings",
-          },
-        },
-        {
-          {
-            noctalia.tr("guide.messages.title"),
-            noctalia.tr("guide.messages.body"),
-            "message",
-          },
-          {
-            noctalia.tr("guide.photos.title"),
-            noctalia.tr("guide.photos.body"),
-            "photo",
-          },
-          {
-            noctalia.tr("guide.deck.title"),
-            noctalia.tr("guide.deck.body"),
-            "layout-grid",
-          },
-        },
-        {
-          {
-            noctalia.tr("guide.connection.title"),
-            noctalia.tr("guide.connection.body"),
-            "wifi",
-          },
-          {
-            noctalia.tr("guide.history.title"),
-            noctalia.tr("guide.history.body"),
-            "message",
-          },
-          {
-            noctalia.tr("guide.unconfirmed.title"),
-            noctalia.tr("guide.unconfirmed.body"),
-            "info-circle",
-          },
-        },
-      }
-      -- Three cards per tab keep the guide within the fixed panel height.
-      notes[4] = {
-        {
-          noctalia.tr("guide.navigation.title"),
-          noctalia.tr("guide.navigation.body"),
-          "history",
-        },
-        {
-          noctalia.tr("guide.refresh.title"),
-          noctalia.tr("guide.refresh.body"),
-          "refresh",
-        },
-        {
-          noctalia.tr("guide.reload.title"),
-          noctalia.tr("guide.reload.body"),
-          "info-circle",
-        },
-      }
-      notes[5] = {
-        {
-          noctalia.tr("guide.fork.title"),
-          noctalia.tr("guide.fork.body"),
-          "device-mobile",
-        },
-        {
-          noctalia.tr("guide.niri.title"),
-          noctalia.tr("guide.niri.body"),
-          "info-circle",
-        },
-        {
-          noctalia.tr("guide.checks.title"),
-          noctalia.tr("guide.checks.body"),
-          "settings",
-        },
-      }
-      for _, note in ipairs(notes[model.guideTopic]) do
-        add(pageNote(note[1], note[2], note[3], 88, width - 12))
-      end
+      return note(title, description, reason and "info-circle" or icons[page], noteWidth, 104,
+        (reason or failed) and "error" or nil, key or "page-state")
+    end
+
+    if page == "guide" then
+      add(Guide.render(model, components, actions, inner))
+    elseif page == "calls" then
+      add(calls.render(inner, online, data, function(width)
+        return stateNote(width, view)
+      end, refresh))
+    elseif page == "messages" then
+      add(messages.render(inner, online, view, stateNote, refresh))
     elseif model.detail then
-      renderDetailPage(add, width)
+      add(photoPreview(inner))
+    elseif page == "apps" then
+      local pagination = data and items.render(add, online, inner, data, refresh)
+      table.insert(rows, 1, forms.appSearch(inner, refresh, pagination))
+      if not data then add(stateNote(inner, view)) end
     else
-      local view = model.pageView
-      local data = view and view.key == model.pageKey and view.status == "ready" and view.data
-        or nil
-      if model.page == "messages" then
-        renderMessagesToolbar(add, online, width, data)
-      elseif model.page == "calls" then
-        renderCallsToolbar(add, online, width, data)
-      elseif model.page == "apps" then
-        renderAppsToolbar(add, width, refresh)
-      elseif model.page == "photos" then
-        renderPhotoAlbums(add, width, data, refresh)
-      end
-      local newSms = model.page == "messages" and model.thread and model.thread.id == ""
-      if not data and not newSms then
-        local failed = view and view.key == model.pageKey and view.status ~= "loading"
-        local reason = model.snapshot.error
-          or (view and view.error)
-          or (view and view.status == "unsupported" and "unsupported")
-        local errorTitle, errorText
-        if reason then
-          errorTitle, errorText = components.failure(reason)
-        end
-        add(
-          pageNote(
-            errorTitle
-              or (
-                not phone and noctalia.tr("pages.no_phone")
-                or (failed and noctalia.tr("pages.failed") or noctalia.tr("pages.loading"))
-              ),
-            errorText
-              or (failed and noctalia.tr("pages.retry_hint") or noctalia.tr("pages.loading_hint")),
-            failed and "wifi" or "device-mobile",
-            88,
-            width - 12
-          )
-        )
-      elseif not newSms then
-        renderPageItems(add, online, width, data, refresh)
+      if page == "photos" then add(forms.photoAlbums(inner, data, refresh)) end
+      if data then
+        items.render(add, online, inner, data, refresh)
+      else
+        add(stateNote(inner, view))
       end
     end
-    model.pageHeight = geometry.pageHeight
+
     return ui.column({
       key = "sidebar-page",
-      width = width,
-      height = model.pageHeight,
-      gap = 4,
-      padding = 6,
-      align = "start",
-      justify = "start",
-      radius = 10,
-      fill = palette("card", 0.5),
-    }, rows)
+      width = width, height = geometry.bodyHeight, padding = metrics.padding, gap = metrics.gap,
+      align = "start", radius = 14, fill = palette("card"),
+    }, {
+      header(phone, online, inner, view, settings, refresh),
+      ui.column({
+        key = "page-body", width = inner, height = metrics.body, gap = metrics.gap, align = "start",
+      }, rows),
+    })
   end
-  return { render = sidebarPage }
+  return { render = renderPage }
 end
+
 return M

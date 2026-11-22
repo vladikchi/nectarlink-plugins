@@ -53,6 +53,7 @@ local function validData(data)
           "string"
         )
         and optionalFields(item, { "date", "size", "duration" }, "number")
+        and optionalFields(item, { "outgoing" }, "boolean")
         and (item.size == nil or item.size >= 0)
         and (item.duration == nil or item.duration >= 0)
         and (

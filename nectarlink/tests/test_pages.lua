@@ -19,7 +19,7 @@ ui = setmetatable({}, {
 })
 panel = {
   render = function(n)
-    assert(n.props.height == 438 and n.props.width == 828, "panel must never resize")
+    assert(n.props.height == 528 and n.props.width == 1072, "panel must never resize")
     tree = n
   end,
 }
@@ -98,6 +98,39 @@ local function countActions()
   end
   return count
 end
+local function finishAction(command, busy)
+  fixture.pageActionRequestId = command.value.request_id
+  fixture.pageActionBusy = busy == true
+  watchers["nl.snapshot"](fixture)
+end
+local function clickAction(callback, action, id)
+  local before = countActions()
+  callback()
+  local cmd = last("page_action")
+  assert(countActions() == before + 1 and cmd.device == "one")
+  assert(cmd.value.action == action and cmd.value.id == id and cmd.value.confirm == true)
+  assert(#cmd.value.request_id == 32 and not key("action-confirmation"))
+  callback()
+  assert(countActions() == before + 1, "old click must not dispatch a second request")
+  return cmd
+end
+local function assertColumnFits(column)
+  local p = column.props
+  local used = 2 * (p.padding or 0) + math.max(0, #column.children - 1) * (p.gap or 0)
+  for _, child in ipairs(column.children) do
+    used = used + (child.props.height or 0)
+  end
+  assert(used <= p.height, (p.key or column.kind) .. " exceeds its budget: " .. used)
+end
+local function assertPageFits()
+  assert(key("sidebar-page").props.height == key("dashboard").props.height)
+  assertColumnFits(key("sidebar-page"))
+  assertColumnFits(key("page-body"))
+  if key("page-list") then assertColumnFits(key("page-list")) end
+  for _, name in ipairs({ "message-threads", "message-thread", "thread-list", "call-history", "dial-form", "dial-keypad" }) do
+    if key(name) then assertColumnFits(key(name)) end
+  end
+end
 onOpen()
 assert(key("refresh-home"))
 key("plugin-settings").props.onClick()
@@ -106,11 +139,10 @@ for _, page in ipairs({ "messages", "calls", "photos", "apps", "deck", "guide" }
   local before = homeBuilds
   key("nav-" .. page).props.onClick()
   assert(homeBuilds == before, "hidden Home must not be constructed")
-  assert(
-    key("sidebar-page") and key("sidebar-page").props.height == 398 and tree.props.height == 438
-  )
+  assertPageFits()
+  assert(key("page-heading") and key("sidebar-page").props.height == 520)
   assert(not key("content") and not key("sidebar"))
-  assert(key("nav-" .. page).props.variant == "secondary")
+  assert(key("nav-" .. page).props.variant == "primary")
   local refreshes = 0
   find(function(n)
     if n.kind == "button" and n.props.glyph == "refresh" then
@@ -122,76 +154,166 @@ for _, page in ipairs({ "messages", "calls", "photos", "apps", "deck", "guide" }
 end
 assert(countActions() == 0)
 for i = 1, 5 do
+  local before = #commands
   key("guide-tab-" .. i).props.onClick()
-  local view = key("sidebar-page")
-  local height = 16 + (#view.children - 1) * view.props.gap
-  for _, node in ipairs(view.children) do
-    height = height + (node.props.height or 0)
-  end
-  assert(height <= 398)
+  assert(#commands == before and key("guide-tab-" .. i).props.variant == "primary")
+  assert(key("guide-tab-" .. i).props.contentAlign == "start")
+  assertPageFits()
+  assertColumnFits(key("guide-topics"))
+  assertColumnFits(key("guide-notes"))
+  assert(#key("guide-notes").children == 4)
+  assert(key("guide-layout").props.height <= key("page-body").props.height)
 end
+assert(key("help-fork").props.contentAlign == "start")
+key("help-fork").props.onClick()
+assert(last("open_fork"))
 key("nav-messages").props.onClick()
 assert(not key("message-toolbar") and key("new-sms"))
 key("new-sms").props.onClick()
 assert(key("back-to-threads") and not key("message-toolbar") and countActions() == 0)
+local newDraft = key("message-draft-one|new-0")
+newDraft.props.onChange("Hello, demo")
+assert(not button("Send").props.enabled)
+key("sms-recipient-one").props.onChange(" ")
+assert(not button("Send").props.enabled)
+key("sms-recipient-one").props.onChange("2025550100")
+assert(button("Send").props.enabled and countActions() == 0)
+assertPageFits()
+assert(key("message-threads") and key("message-thread"))
+local newSms = clickAction(button("Send").props.onClick, "sms", "")
+assert(newSms.value.text == "Hello, demo" and newSms.value.recipients[1] == "2025550100")
+assert(key("message-composer") and not button("Sending…").props.enabled)
+finishAction(newSms) -- Completion may be the first snapshot observed by the UI.
+assert(key("message-draft-one|new-0").props.value == "Hello, demo")
 key("back-to-threads").props.onClick()
 respond({
   items = {
     { id = "42", kind = "sms", title = "Alice", addresses = { "123" }, subtitle = "Hello" },
   },
 })
-key("page-item-42").props.onClick()
+key("thread-item-42").props.onClick()
 assert(last("page").value.limit == 6)
-respond({
-  items = {
-    { id = "m1", title = "Alice", subtitle = string.rep("Текст 🦀\n", 100), date = 9 },
-  },
-  reply = true,
-})
+assert(key("thread-item-42").props.fill == "primary/0.19")
+local lines = {}
+for i = 1, 100 do lines[i] = ("Строка %03d 🦀\n"):format(i) end
+local chat = {
+  { id = "m1", title = "Alice", subtitle = table.concat(lines), date = 9 },
+  { id = "m2", title = "Me", subtitle = "Hi", date = 8, outgoing = true },
+}
+for i = 3, 6 do chat[i] = { id = "m" .. i, date = 10 - i } end
+respond({ items = chat, reply = true, notice = "Read and reply permissions are separate" })
+assert(key("page-item-m2").props.fill == "primary/0.15" and key("page-item-m1").props.fill ~= "primary/0.15")
+assert(key("message-composer") and key("page-notice") and #key("page-list").children == 6)
+assertPageFits()
 local input = find(function(n)
   return n.kind == "input" and (n.props.key or ""):match("message%-draft")
 end)
 input.props.onChange("Не отправлять автоматически")
-assert(countActions() == 0)
-button("Send").props.onClick()
-assert(countActions() == 0)
-button("Confirm").props.onClick()
-assert(countActions() == 1 and last("page_action").value.action == "sms")
-assert(
-  last("page_action").value.recipients[1] == "123" and #last("page_action").value.request_id == 32
-)
+assert(countActions() == 1)
+local beforeOffline = button("Send").props.onClick
+fixture.devices[1].online = false
+watchers["nl.snapshot"](fixture)
+assert(not button("Send").props.enabled)
+beforeOffline()
+assert(countActions() == 1, "a queued send must not reach an offline phone")
+fixture.devices[1].online = true
+watchers["nl.snapshot"](fixture)
+local sms = clickAction(button("Send").props.onClick, "sms", "42")
+assert(sms.value.text == "Не отправлять автоматически" and sms.value.recipients[1] == "123")
+finishAction(sms)
 assert(find(function(n)
   return n.kind == "input"
     and n.props.value == "Не отправлять автоматически"
 end))
 key("page-item-m1").props.onClick()
-assert(key("pager-next"))
+assert(key("message-detail").children[1].props.text == table.concat(lines, "", 1, 12))
 key("pager-next").props.onClick()
-button("← Back").props.onClick()
+assert(key("message-detail").children[1].props.text == table.concat(lines, "", 13, 24))
+key("back-to-message").props.onClick()
+assert(key("thread-item-42") and key("page-item-m1"))
+button("Clear").props.onClick()
+assert(key("message-draft-one|42-1").props.value == "" and not button("Send").props.enabled)
+key("back-to-threads").props.onClick()
+respond({ items = {
+  { id = "chat:m", kind = "chat", title = "Demo notifications", subtitle = "One saved message" },
+} })
+key("thread-item-chat:m").props.onClick()
+respond({ items = { { id = "n1", title = "Demo", subtitle = "A reply", outgoing = true } }, reply = false })
+assert(key("page-notice") and key("page-item-n1").props.width == key("page-list").props.width)
+assert(key("page-item-n1").props.fill ~= "primary/0.15" and not button("Send").props.enabled)
+assertPageFits()
+respond({ items = {}, reply = true })
+key("message-draft-one|chat:m-0").props.onChange("Demo reply")
+local oldReply = button("Send").props.onClick
+respond({ items = {}, reply = false })
+oldReply()
+assert(countActions() == 2, "a now-unavailable reply must not be dispatched")
+respond({ items = {}, reply = true })
+local reply = clickAction(button("Send").props.onClick, "reply", "chat:m")
+assert(reply.value.text == "Demo reply" and reply.value.recipients == nil)
+finishAction(reply)
+
 key("nav-calls").props.onClick()
-assert(key("new-call") and not key("dial-toolbar") and not key("refresh-home"))
-key("new-call").props.onClick()
-assert(key("dial-toolbar") and key("back-to-list"))
-key("dial-number-one").props.onChange("12345")
-key("back-to-list").props.onClick()
-assert(not key("dial-toolbar"))
-key("new-call").props.onClick()
-assert(key("dial-number-one").props.value == "12345")
-key("back-to-list").props.onClick()
+assert(key("dial-toolbar") and key("call-history") and not key("refresh-home"))
+local function dialInput()
+  return find(function(n)
+    return n.kind == "input" and (n.props.key or ""):match("^dial%-number%-one%-")
+  end)
+end
+local beforeDial = #commands
+local originalInput = dialInput()
+originalInput.props.onChange("12345")
+assert(dialInput().props.key == originalInput.props.key, "physical typing must preserve input focus")
+key("dial-key-6").props.onClick()
+assert(dialInput().props.value == "123456" and dialInput().props.key ~= originalInput.props.key)
+originalInput.props.onChange("0")
+assert(dialInput().props.value == "123456", "a stale input must not overwrite a keypad edit")
+key("dial-erase").props.onClick()
+assert(dialInput().props.value == "12345" and #commands == beforeDial)
+assert(not key("dial-submit").props.enabled, "no dial permission until the page arrives")
 respond({
   items = { { id = "c1", title = "Alice", number = "123", subtitle = "incoming", date = 100 } },
   dial = true,
   active = { id = "active-call", state = "ringing", name = "Bob" },
   control = true,
 })
-button("Answer").props.onClick()
-assert(countActions() == 1)
-button("Confirm").props.onClick()
-assert(last("page_action").value.id == "active-call")
+assertPageFits()
+assert(key("page-item-c1") and key("active-call-toolbar") and key("dial-keypad"))
+dialInput().props.onChange("invalid")
+assert(not key("dial-submit").props.enabled)
+dialInput().props.onChange("+1 (202) 555-0100")
+assert(key("dial-submit").props.enabled)
+local function callState(id, state)
+  respond({
+    items = { { id = "c1", title = "Alice", number = "123", subtitle = "incoming", date = 100 } },
+    dial = true, active = { id = id, state = state, name = "Bob" }, control = true,
+  })
+end
+local oldAnswer = key("active-answer").props.onClick
+callState("next-call", "ringing")
+oldAnswer()
+assert(countActions() == 3, "a replaced incoming call cannot be answered by a stale button")
+for _, action in ipairs({ "answer", "silence", "decline" }) do
+  if action == "decline" then callState("next-call", "active") end
+  local cmd = clickAction(key("active-" .. action).props.onClick, action, "next-call")
+  assert(key("call-history") and key("dial-form") and not key("active-" .. action).props.enabled)
+  assert(key("dial-submit").props.text == "Call")
+  finishAction(cmd)
+end
 key("page-item-c1").props.onClick()
-button("Call").props.onClick()
-button("Confirm").props.onClick()
-assert(last("page_action").value.action == "dial")
+assert(dialInput().props.value == "123" and key("page-item-c1") and countActions() == 6)
+local firstDial = key("dial-submit").props.onClick
+local dial = clickAction(firstDial, "dial")
+assert(dial.value.text == "123" and key("page-item-c1"))
+assert(not key("dial-submit").props.enabled and key("dial-submit").props.text == "Sending…")
+watchers["nl.snapshot"](fixture) -- An unrelated poll cannot release the click lock.
+assert(countActions() == 7 and not key("dial-submit").props.enabled)
+finishAction(dial, true)
+assert(not key("dial-submit").props.enabled and key("dial-submit").props.text == "Sending…")
+finishAction(dial)
+assert(key("dial-submit").props.enabled)
+firstDial()
+assert(countActions() == 7, "a callback from before the request must not dial again")
 key("nav-photos").props.onClick()
 respond({
   items = {
@@ -211,35 +333,40 @@ assert(find(function(n)
 end))
 key("page-item-p1").props.onClick()
 assert(
-  key("photo-preview").props.height == 350
+  key("photo-preview").props.height == key("page-body").props.height
     and key("photo-preview").children[1].props.fit == "contain"
 )
-assert(key("photo-preview").props.height + 32 + 4 + 12 == 398)
+assertPageFits()
 assert(not find(function(n)
   return n.kind == "label" and n.props.text == "Фото" and n.props.color == "primary"
 end))
-assert(key("download-photo").props.width == 28 and not button("Download original"))
-key("download-photo").props.onClick()
-button("Confirm").props.onClick()
-assert(last("page_action").value.action == "photo")
+local closedPhoto = key("download-photo").props.onClick
+key("back-to-list").props.onClick()
+closedPhoto()
+assert(countActions() == 7, "a closed photo preview must not start a download")
+key("page-item-p1").props.onClick()
+local photo = clickAction(key("download-photo").props.onClick, "photo", "p1")
+assert(key("photo-preview") and not key("download-photo").props.enabled)
+finishAction(photo)
 for _, page in ipairs({ "apps", "deck" }) do
   key("nav-" .. page).props.onClick()
   respond({ items = { { id = "known-id", title = "Existing", subtitle = "Configured" } } })
   assert(key("page-grid") and key("page-item-known-id").kind == "column")
   local before = countActions()
   key("page-item-known-id").props.onClick()
-  assert(countActions() == before + 1 and not button("Confirm"))
+  assert(countActions() == before + 1 and not key("action-confirmation"))
   assert(last("page_action").value.action == (page == "apps" and "app" or "deck"))
+  finishAction(last("page_action"))
   if page == "apps" then
     local count = countActions()
     fixture.pageActionBusy = true
     watchers["nl.snapshot"](fixture)
-    key("page-item-known-id").props.onClick()
+    assert(not key("page-item-known-id").props.onClick)
     assert(countActions() == count)
     fixture.pageActionBusy = false
     fixture.devices[1].online = false
     watchers["nl.snapshot"](fixture)
-    key("page-item-known-id").props.onClick()
+    assert(not key("page-item-known-id").props.onClick)
     assert(countActions() == count)
     fixture.devices[1].online = true
     watchers["nl.snapshot"](fixture)
@@ -269,7 +396,7 @@ watchers["nl.snapshot"](fixture)
 assert(#commands == before, "typing a search must not refetch on an unrelated snapshot")
 button("Search").props.onClick()
 assert(last("page").value.search == "Camera" and not last("page").value.force)
--- Worst-case list pages include both notice and action status, never spill.
+-- Full pages, including toolbars and a notice, must fit the same panel.
 fixture.pageActionResult =
   "Запрос принят. Проверьте результат; черновик сохранён."
 for _, page in ipairs({ "messages", "calls", "photos", "apps", "deck" }) do
@@ -279,7 +406,7 @@ for _, page in ipairs({ "messages", "calls", "photos", "apps", "deck" }) do
     key("back-to-threads").props.onClick()
   end
   local count = page == "photos" and 8
-    or (page == "apps" and 40 or (page == "deck" and 11 or (page == "messages" and 7 or 6)))
+    or (page == "apps" and 36 or (page == "deck" and 11 or (page == "messages" and 7 or 6)))
   local items = {}
   for i = 1, count do
     items[i] = {
@@ -289,15 +416,15 @@ for _, page in ipairs({ "messages", "calls", "photos", "apps", "deck" }) do
       date = i,
     }
   end
-  respond({ items = items, more = true, notice = "", albums = {} })
+  respond({
+    items = items, more = true, notice = "An informational notice from the app", albums = {},
+    active = page == "calls" and { id = "active-call", state = "ringing", name = "Caller" } or nil,
+  })
+  assert(key(page == "messages" and "threads-notice" or "page-notice"))
+  if page == "calls" then assert(key("active-call-toolbar")) end
   if page == "messages" or page == "calls" then
-    local rendered = 0
-    for _, node in ipairs(key("sidebar-page").children) do
-      if (node.props.key or ""):match("^page%-item") then
-        rendered = rendered + 1
-      end
-    end
-    assert(rendered == count and last("page").value.limit == count)
+    assert(#key(page == "messages" and "thread-list" or "page-list").children == count
+      and last("page").value.limit == count)
   end
   assert(not find(function(n)
     return n.kind == "label"
@@ -316,7 +443,7 @@ for _, page in ipairs({ "messages", "calls", "photos", "apps", "deck" }) do
     end
     if page == "apps" then
       assert(
-        #grid.children == 4 and #grid.children[1].children == 10 and last("page").value.limit == 40
+        #grid.children == 4 and #grid.children[1].children == 9 and last("page").value.limit == count
       )
     end
     local totalHeight = (#grid.children - 1) * grid.props.gap
@@ -336,12 +463,13 @@ for _, page in ipairs({ "messages", "calls", "photos", "apps", "deck" }) do
         end
         assert(used <= cell.props.height, "grid children exceed the cell")
         if page == "photos" then
-          local image = cell.children[1].children[1]
+          local image, caption = cell.children[1], cell.children[2]
           assert(
-            image.props.width == cell.props.width - 8
-              and image.props.height == 128
-              and #cell.children == 1,
-            "photo thumbnail must fill the tile"
+            image.props.width == cell.props.width - 2 * cell.props.padding
+              and caption.children[1].props.maxLines == 1
+              and image.props.height + caption.props.height + cell.props.gap + 2 * cell.props.padding
+                == cell.props.height,
+            "photo thumbnail and filename must fit the tile"
           )
         end
       end
@@ -349,33 +477,27 @@ for _, page in ipairs({ "messages", "calls", "photos", "apps", "deck" }) do
     end
     assert(totalHeight <= grid.props.height, "grid rows overlap")
   end
-  local footer = key("page-pagination")
+  local footer = key(page == "messages" and "thread-list-pagination" or "page-pagination")
   if page == "deck" then
     assert(not footer)
   else
     assert(
       footer.props.height == 32
         and footer.children[1].props.glyph == "chevron-left"
-        and footer.children[5].props.glyph == "chevron-right"
+        and footer.children[3].props.glyph == "chevron-right"
     )
-    assert(footer.children[3].children[1].props.text == "1")
+    local pageNumber = page == "messages" and "threads-pager-number" or "page-number"
+    assert(key(pageNumber).children[1].props.text == "1")
     for _, child in ipairs(footer.children) do
       if child.kind == "button" then
         assert(child.props.height <= footer.props.height)
       end
     end
   end
-  local view = key("sidebar-page")
-  local height = 12 + (#view.children - 1) * view.props.gap
-  for _, node in ipairs(view.children) do
-    height = height + (node.props.height or (node.kind == "select" and 28) or 0)
-  end
-  assert(
-    height <= view.props.height and view.props.height == 398 and tree.props.height == 438,
-    page .. " exceeds bounds: " .. tostring(height)
-  )
+  assertPageFits()
   if page ~= "deck" then
-    key("pager-next").props.onClick()
+    local prefix = page == "messages" and "threads-pager" or "pager"
+    key(prefix .. "-next").props.onClick()
     local query = last("page").value
     if page == "photos" or page == "calls" then
       assert(query.before == count and query.before_id == tostring(count))
@@ -383,19 +505,19 @@ for _, page in ipairs({ "messages", "calls", "photos", "apps", "deck" }) do
       assert(query.offset == count)
     end
     respond({ items = items, more = true, albums = {} })
-    assert(key("page-number").children[1].props.text == "2")
-    key("pager-prev").props.onClick()
+    assert(key(page == "messages" and "threads-pager-number" or "page-number").children[1].props.text == "2")
+    key(prefix .. "-prev").props.onClick()
     assert(last("page").value.offset == 0 and last("page").value.before == nil)
   end
 end
--- The complete core-bounded Deck fits one view, even for unusually large configs.
+-- Both app display modes must fit with or without the navigation rail.
 local actionCount = countActions()
 key("nav-apps").props.onClick()
 for _, case in ipairs({
-  { "icons", true, 70, 48, 14, 5 },
-  { "icons_text", true, 40, 64, 10, 4 },
-  { "icons", false, 75, 48, 15, 5 },
-  { "icons_text", false, 44, 64, 11, 4 },
+  { "icons", true, 96, 52, 17, 6, 56 },
+  { "icons_text", true, 36, 103, 9, 4, 88 },
+  { "icons", false, 96, 52, 18, 6, 56 },
+  { "icons_text", false, 40, 99, 10, 4, 88 },
 }) do
   config.apps_display = case[1]
   config.panel_navigation = case[2]
@@ -414,33 +536,34 @@ for _, case in ipairs({
   respond({ items = items, more = true })
   local grid = key("page-grid")
   assert(#grid.children == case[6] and #grid.children[1].children == case[5])
+  local toolbar = key("app-toolbar")
+  assert(toolbar.children[#toolbar.children] == key("page-pagination"))
   for _, row in ipairs(grid.children) do
-    assert(
-      math.abs(#row.children * case[4] + (#row.children - 1) * row.props.gap - row.props.width)
-        < 0.001
-    )
+    local usedWidth = #row.children * case[4] + (#row.children - 1) * row.props.gap
+    assert(usedWidth <= row.props.width + 0.001)
+    if #row.children == case[5] then assert(math.abs(usedWidth - row.props.width) < 0.001) end
     for _, cell in ipairs(row.children) do
-      assert(cell.props.width == case[4] and cell.props.height == case[4])
+      assert(cell.props.width == case[4] and cell.props.height == case[7])
       assert(#cell.children == (case[1] == "icons" and 1 or 2))
       local icon = cell.children[1].children[1]
-      assert(icon.props.width == 24 and icon.props.height == 24)
+      local iconSide = case[1] == "icons" and 26 or 34
+      assert(icon.props.width == iconSide and icon.props.height == iconSide)
+      if case[1] == "icons_text" then assert(cell.children[2].children[1].props.maxLines == 2) end
       assert(
-        cell.props.tooltip == "App name · org.private.package" and cell.props.fill == "transparent"
+        cell.props.tooltip == "App name · org.private.package" and cell.props.fill == "surface/0.72"
       )
     end
   end
   assert(not find(function(n)
     return n.kind == "label" and n.props.text == "org.private.package"
   end))
-  local used = 12 + (#key("sidebar-page").children - 1) * 4
-  for _, node in ipairs(key("sidebar-page").children) do
-    used = used + (node.props.height or 0)
-  end
-  assert(used <= 398)
+  assertPageFits()
+  assert((key("navigation") ~= nil) == case[2] and key("plugin-settings"))
   local builds = nodeBuilds
   onTileHover("true", "page-item-app-1")
-  assert(key("page-item-app-1").props.fill == "#202020") -- Minimal mock has no palette API.
+  assert(key("page-item-app-1").props.fill == "primary/0.16")
   onTileHover("false", "page-item-app-1")
+  assert(key("page-item-app-1").props.fill == "surface/0.72") -- Minimal mock has no palette API.
   assert(nodeBuilds == builds, "app hover must reuse the existing tree")
   key("pager-next").props.onClick()
   assert(last("page").value.offset == case[3])
@@ -455,12 +578,13 @@ assert(not find(function(n)
   return n.kind == "label" and (n.props.text or ""):find("плагин Noctalia", 1, true)
 end))
 key("nav-deck").props.onClick()
+-- The complete core-bounded Deck fits one view even with a notice.
 for _, count in ipairs({ 11, 24, 48, 96, 192 }) do
   local items = {}
   for i = 1, count do
     items[i] = { id = "tile-" .. i, title = "Configured tile", subtitle = "Page" }
   end
-  respond({ items = items, more = false, complete = true })
+  respond({ items = items, more = false, complete = true, notice = "Read-only notice" })
   local grid = key("page-grid")
   local rendered = 0
   local used = (#grid.children - 1) * grid.props.gap
@@ -475,7 +599,8 @@ for _, count in ipairs({ 11, 24, 48, 96, 192 }) do
       assert(occupied <= cell.props.height)
     end
   end
-  assert(rendered == count and used <= 336 and not key("page-pagination"))
+  assert(rendered == count and used == grid.props.height and not key("page-pagination"))
+  assertPageFits()
 end
 onClose()
 assert(commands[#commands].action == "visible" and commands[#commands].value == false)
@@ -483,5 +608,5 @@ onOpen()
 assert(commands[#commands].action == "page") -- No refresh/leave overwriting the read in the same frame.
 onClose()
 print(
-  "PASS: all six pages, explicit confirmations, retained drafts, call IDs, photos and late-response isolation"
+  "PASS: all six pages, one-click actions, duplicate guards, retained drafts, call IDs and late-response isolation"
 )

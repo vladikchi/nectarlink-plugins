@@ -3,17 +3,45 @@
 -- panel.luau owns model; only explicit click handlers call send.
 local palette = require("./palette.luau")
 local M = {}
+-- The manifest specifies the outer size. Noctalia adds its own panel padding.
 local geometry = {
-  panelWidth = 860,
+  panelWidth = 1104,
+  panelHeight = 560,
   hostPadding = 16,
-  framePadding = 3,
-  navigationSpace = 52,
-  sidebarSpace = 270,
-  pageHeight = 398,
+  framePadding = 4,
+  gap = 10,
+  navigationWidth = 52,
+  activityWidth = 352,
 }
+geometry.frameWidth = geometry.panelWidth - 2 * geometry.hostPadding
+geometry.frameHeight = geometry.panelHeight - 2 * geometry.hostPadding
+geometry.bodyWidth = geometry.frameWidth - 2 * geometry.framePadding
+geometry.bodyHeight = geometry.frameHeight - 2 * geometry.framePadding
+
+-- Photos keep a separate pager; apps fit it in the search toolbar.
+local page = {
+  padding = 10,
+  gap = 8,
+  heading = 48,
+  toolbar = 40,
+  pager = 32,
+  notice = 16,
+  callRow = 54,
+  itemGap = 6,
+  limits = { messages = 7, thread = 6, calls = 6, photos = 8, deck = 192 },
+}
+page.body = geometry.bodyHeight - 2 * page.padding - page.heading - page.gap
+page.gallery = page.body - page.toolbar - page.notice - page.pager - 4 * page.gap
+page.appGrid = page.body - page.toolbar - page.notice - 2 * page.gap
+geometry.page = page
+
+function geometry.contentWidth(navigation)
+  return geometry.bodyWidth - (navigation and (geometry.navigationWidth + geometry.gap) or 0)
+end
+
 M.layout = geometry
 
-function M.new(model, send)
+function M.new()
   -- Display fixed error codes, never HTTP bodies, credentials or OS errors.
   local failures = {
     auth_changed = {
@@ -114,18 +142,25 @@ function M.new(model, send)
 
   local function appsLayout()
     local names = noctalia.getConfig("apps_display") ~= "icons"
-    local side = names and 64 or 48
-    local width = 822 - (setting("panel_navigation") and 52 or 0) - 12
-    local columns = math.floor((width + 6) / (side + 6))
-    local rows = math.floor((274 + 6) / (side + 6))
+    local minWidth, height = names and 99 or 50, names and 88 or 56
+    local width = geometry.contentWidth(setting("panel_navigation")) - 2 * page.padding
+    local gap = page.itemGap
+    local columns = math.floor((width + gap) / (minWidth + gap))
+    local rows = math.floor((page.appGrid + gap) / (height + gap))
+    local cellWidth = math.floor((width - (columns - 1) * gap) / columns)
     return {
       names = names,
-      side = side,
+      width = cellWidth,
+      height = height,
       columns = columns,
       rows = rows,
       limit = math.min(96, columns * rows),
-      gap = (width - columns * side) / (columns - 1),
+      gap = (width - columns * cellWidth) / (columns - 1),
     }
+  end
+
+  local function appTileFill(hovered)
+    return hovered and "primary/0.16" or palette("raised", 0.72)
   end
 
   local function preview(text, limit)
@@ -169,58 +204,69 @@ function M.new(model, send)
     })
   end
 
-  local function pager(width, index, back, nextPage, canBack, canNext, key)
-    return ui.row(
-      { key = key or "page-pagination", width = width, height = 32, align = "center" },
-      {
-        ui.button({
-          key = "pager-prev",
-          glyph = "chevron-left",
-          width = 32,
-          height = 32,
-          variant = "ghost",
-          tooltip = noctalia.tr("common.previous_page"),
-          enabled = canBack,
-          onClick = canBack and back or nil,
-        }),
-        ui.spacer({ flexGrow = 1 }),
-        ui.column(
-          { key = "page-number", width = 40, height = 28, align = "center", justify = "center" },
-          { label(tostring(index), 12, "on_surface_variant", false, 40) }
-        ),
-        ui.spacer({ flexGrow = 1 }),
-        ui.button({
-          key = "pager-next",
-          glyph = "chevron-right",
-          width = 32,
-          height = 32,
-          variant = "ghost",
-          tooltip = noctalia.tr("common.next_page"),
-          enabled = canNext,
-          onClick = canNext and nextPage or nil,
-        }),
-      }
-    )
+  local function iconBadge(glyph, side, color, fill, glyphSize)
+    return ui.column({
+      width = side, height = side, radius = 9, align = "center", justify = "center",
+      fill = fill or "primary/0.12",
+    }, {
+      ui.glyph({ name = glyph, size = glyphSize or 19, color = color or "primary" }),
+    })
   end
 
-  local function pageNote(title, text, glyph, height, width)
+  local function pageSteps(index, back, nextPage, canBack, canNext, key, prefix)
     return ui.row({
-      height = height or 72,
-      gap = 10,
-      padding = 10,
-      radius = 10,
-      fill = palette("card"),
+      key = key or "page-pagination",
+      width = 104, height = page.pager, gap = 4, align = "center",
+      fill = palette("raised", 0.72), radius = 9,
     }, {
-      ui.glyph({ name = glyph or "info-circle", size = 20, color = "primary" }),
-      ui.column({ gap = 4, flexGrow = 1 }, {
-        label(title, 13, "on_surface", true, width - 50),
+      ui.button({
+        key = prefix and (prefix .. "-prev") or "pager-prev",
+        glyph = "chevron-left",
+        width = 32,
+        height = 32,
+        variant = "ghost",
+        tooltip = noctalia.tr("common.previous_page"),
+        enabled = canBack,
+        onClick = canBack and back or nil,
+      }),
+      ui.column({
+        key = prefix and (prefix .. "-number") or "page-number",
+        width = 32, height = 28, align = "center", justify = "center",
+      }, { label(tostring(index), 12, "on_surface", true, 32) }),
+      ui.button({
+        key = prefix and (prefix .. "-next") or "pager-next",
+        glyph = "chevron-right",
+        width = 32,
+        height = 32,
+        variant = "ghost",
+        tooltip = noctalia.tr("common.next_page"),
+        enabled = canNext,
+        onClick = canNext and nextPage or nil,
+      }),
+    })
+  end
+
+  local function pageNote(title, text, glyph, width, height, tone, key)
+    local textWidth = width - 82
+    return ui.row({
+      key = key,
+      width = width,
+      height = height,
+      gap = 12,
+      padding = 14,
+      radius = 12,
+      align = "center",
+      fill = palette("raised", 0.72),
+    }, {
+      iconBadge(glyph, 42, tone, tone == "error" and "error/0.14" or nil, 22),
+      ui.column({ width = textWidth, gap = 5 }, {
+        label(title, 15, "on_surface", true, textWidth),
         ui.label({
           text = text,
           fontFamily = "sans-serif",
           fontSize = 12,
-          height = (height or 72) - 36,
           maxLines = 3,
-          maxWidth = width - 50,
+          maxWidth = textWidth,
           color = "on_surface_variant",
         }),
       }),
@@ -241,60 +287,19 @@ function M.new(model, send)
     })
   end
 
-  local function tile(key, text, glyph, command, enabled, reason, device, value, active, width)
-    return ui.column({
-      key = key,
-      gap = 4,
-      padding = 8,
-      radius = 12,
-      width = width or model.tileWidth,
-      height = 68,
-      opacity = enabled and 1 or 0.48,
-      fill = (active or model.hovered == key) and "primary/0.18" or palette("card"),
-      border = active and "primary/0.5" or palette("card"),
-      borderWidth = 1,
-      tooltip = reason or text,
-      onHover = "onTileHover",
-      onClick = enabled and function()
-        send(command, device, value)
-      end or nil,
-    }, {
-      ui.row({ justify = "start" }, {
-        ui.column({
-          width = 20,
-          height = 20,
-          radius = 10,
-          fill = "primary/0.15",
-          align = "center",
-          justify = "center",
-        }, {
-          ui.glyph({ name = glyph, size = 14, color = "primary" }),
-        }),
-      }),
-      ui.label({
-        text = text,
-        height = 28,
-        fontFamily = "sans-serif",
-        fontSize = 11,
-        fontWeight = "bold",
-        maxLines = 2,
-        maxWidth = (width or model.tileWidth) - 16,
-        color = "on_surface",
-      }),
-    })
-  end
   return {
     activeSession = activeSession,
     setting = setting,
     appsLayout = appsLayout,
+    appTileFill = appTileFill,
     preview = preview,
     label = label,
     smallButton = smallButton,
-    pager = pager,
+    pageSteps = pageSteps,
     pageNote = pageNote,
+    iconBadge = iconBadge,
     failure = failure,
     badge = badge,
-    tile = tile,
     titles = titles,
     directions = directions,
     deckLabels = deckLabels,

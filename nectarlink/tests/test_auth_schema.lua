@@ -263,6 +263,9 @@ local cases = {
     d.more = "true"
   end,
   function(d)
+    d.items[1].outgoing = "true"
+  end,
+  function(d)
     d.active = { id = "call", state = true }
   end,
   function(d)
@@ -355,5 +358,5 @@ for _, bad in ipairs({
   local ok, err = pcall(watcher, fixture)
   assert(ok, err)
 end
-assert(tree.props.height == 438 and tree.props.width == 828)
+assert(tree.props.height == 528 and tree.props.width == 1072)
 print("PASS: renderer survives legacy malformed scalar fields with unchanged panel bounds")

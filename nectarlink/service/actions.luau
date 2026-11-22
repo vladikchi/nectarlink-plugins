@@ -12,10 +12,11 @@ function M.new(snapshot, requests, clock, visibility, dependencies)
   local pollSessions = dependencies.pollSessions
   local sessionKinds = dependencies.sessionKinds
 
+  local function validRequestId(id)
+    return type(id) == "string" and #id == 32 and id:match("^%x+$") ~= nil
+  end
+
   local function handlePageAction(command)
-    if snapshot.pageActionBusy or not visibility.open then
-      return
-    end
     local action = command.value
     if action.confirm ~= true or type(action.request_id) ~= "string" then
       return
@@ -31,9 +32,18 @@ function M.new(snapshot, requests, clock, visibility, dependencies)
       decline = true,
       silence = true,
     }
-    if
-      not known[action.action] or (action.action ~= "deck" and not onlineDevice(command.device))
-    then
+    if not known[action.action] then return end
+    -- Acknowledge receipt, not success. Keep the opaque ID after completion so
+    -- the panel also unlocks if it misses the intermediate busy snapshot.
+    local receipt = validRequestId(action.request_id) and action.request_id
+    if receipt and snapshot.pageActionRequestId == receipt then return end
+    if receipt then snapshot.pageActionRequestId = receipt end
+    local busy = snapshot.pageActionBusy
+    if busy or not visibility.open or (action.action ~= "deck" and not onlineDevice(command.device)) then
+      if receipt then
+        noctalia.notifyError("NectarLink", noctalia.tr(busy and "notifications.action_busy" or "notifications.action_failed"))
+        publish()
+      end
       return
     end
     requests.actions.generation = requests.actions.generation + 1
@@ -190,9 +200,6 @@ function M.new(snapshot, requests, clock, visibility, dependencies)
   local function handlePhoneToggle(command)
     -- Busy/generation belong to the command; rereading the device confirms
     -- actual state rather than assuming the click succeeded.
-    if snapshot.controlBusy then
-      return
-    end
     local value = command.value
     if type(value.id) ~= "string" then
       return
@@ -207,16 +214,27 @@ function M.new(snapshot, requests, clock, visibility, dependencies)
     elseif type(value.on) ~= "boolean" or value.mode ~= nil then
       return
     end
+    local receipt = validRequestId(value.request_id) and value.request_id
+    if receipt and snapshot.controlRequestId == receipt then return end
+    if receipt then snapshot.controlRequestId = receipt end
     local allowed = false
-    for _, device in ipairs(snapshot.devices) do
-      if device.id == command.device and device.controls and device.controls.allowed then
-        allowed = device.controls.allowed[value.id] == true
+    if onlineDevice(command.device) then
+      for _, device in ipairs(snapshot.devices) do
+        if device.id == command.device and device.controls and device.controls.allowed then
+          allowed = device.controls.allowed[value.id] == true
+        end
       end
     end
-    if not allowed then
+    local busy = snapshot.controlBusy
+    if busy or not allowed or (value.id == "wifi" and value.on == false and value.confirm_disconnect ~= true) then
+      if receipt then
+        noctalia.notifyError("NectarLink", noctalia.tr(busy and "notifications.action_busy" or "notifications.toggle_failed"))
+        publish()
+      end
       return
     end
     requests.controls.generation = requests.controls.generation + 1
+    requests.controls.refreshing = false
     local requestGeneration = requests.controls.generation
     requests.controls.started = clock.ticks
     snapshot.controlBusy = true
@@ -231,7 +249,9 @@ function M.new(snapshot, requests, clock, visibility, dependencies)
       if requestGeneration ~= requests.controls.generation then
         return
       end
-      snapshot.controlBusy = false
+      -- After acceptance, keep the switches disabled until the fresh read.
+      requests.controls.refreshing = ok == true
+      if not ok then snapshot.controlBusy = false end
       requests.devices.generation = requests.devices.generation + 1
       requests.devices.pending = false
       if not ok then

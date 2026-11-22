@@ -28,7 +28,7 @@ If **Open application** cannot find NectarLink, set **NectarLink executable** to
 - **Photos:** browse albums and thumbnails and request the original photo on your PC.
 - **Apps and Deck:** open supported phone apps on the PC and run Deck tiles already configured in NectarLink.
 
-Available actions depend on the phone and its Android permissions. Notification-based chats are not a full conversation history. Sending messages, making calls, requesting original photos, and turning off Wi-Fi require confirmation. If an action times out, the plugin does not resend it; check the phone or PC before trying again.
+Available actions depend on the phone and its Android permissions. Notification-based chats are not a full conversation history. Action buttons send requests directly, without a confirmation dialog from the plugin. Entering or selecting a number does not dial. Turning off Wi-Fi can disconnect the phone. If an action times out, the plugin does not resend it; check the phone or PC before trying again.
 
 ## If the panel cannot connect
 

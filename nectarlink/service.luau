@@ -14,7 +14,7 @@ local requests = {
   timeline = { pending = false, generation = 0, started = 0 },
   notifications = { pending = false, generation = 0, started = 0 },
   camera = { generation = 0, started = 0 },
-  controls = { generation = 0, started = 0 },
+  controls = { generation = 0, started = 0, refreshing = false },
   sessions = {
     pending = false,
     refreshing = false,
@@ -169,6 +169,7 @@ local function pollTimeline(warm)
             kind = item.kind,
             title = item.title,
             direction = item.direction,
+            timestamp = type(item.timestamp) == "number" and item.timestamp or nil,
           })
         end
       end
@@ -210,6 +211,7 @@ local function pollNotifications(warm)
             appName = item.appName,
             title = item.title,
             text = item.text,
+            timestamp = type(item.timestamp) == "number" and item.timestamp or nil,
           })
         end
       end
@@ -340,6 +342,10 @@ local function poll()
       requests.ring.refreshing = false
       snapshot.ringBusy = false
     end
+    if requests.controls.refreshing then
+      requests.controls.refreshing = false
+      snapshot.controlBusy = false
+    end
     publish()
   end, config)
 end
@@ -456,11 +462,7 @@ noctalia.state.watch("nl.command", function(raw)
     handleSessionCommand(cmd)
   elseif cmd.action == "type_text" and type(cmd.value) == "string" then
     handleTextInput(cmd)
-  elseif
-    cmd.action == "phone_toggle"
-    and onlineDevice(cmd.device)
-    and type(cmd.value) == "table"
-  then
+  elseif cmd.action == "phone_toggle" and type(cmd.value) == "table" then
     handlePhoneToggle(cmd)
   elseif cmd.action == "camera" and type(cmd.device) == "string" and onlineDevice(cmd.device) then
     handleCameraCommand(cmd)
@@ -559,6 +561,7 @@ function update()
   end
   if snapshot.controlBusy and clock.ticks - requests.controls.started >= limits.timeoutTicks then
     requests.controls.generation = requests.controls.generation + 1
+    requests.controls.refreshing = false
     snapshot.controlBusy = false
     requests.devices.generation = requests.devices.generation + 1
     requests.devices.pending = false
