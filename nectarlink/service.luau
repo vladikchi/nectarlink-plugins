@@ -7,6 +7,8 @@ local snapshot = { state = "unconfigured", devices = {} }
 local clock = { ticks = 0 }
 local visibility = { open = false, section = "home", activePage = nil, warmedHome = nil }
 local cache = { entries = {}, jobs = {}, retry = {}, epoch = 0, clock = 0 }
+local knownDevices = {}
+local legacyEmpty = false
 -- Device reads and individual action channels have independent counters.
 local requests = {
   devices = { pending = false, generation = 0 },
@@ -102,7 +104,10 @@ local api = require("./service/api.luau").new(function(reason)
   end
   requests.sessions.commandGeneration = requests.sessions.commandGeneration + 1
   visibility.activePage = nil
+  visibility.threads = nil
   visibility.warmedHome = nil
+  knownDevices = {}
+  legacyEmpty = false
   -- Clear the old projection in place; modules retain the same snapshot table.
   for key in pairs(snapshot) do
     snapshot[key] = nil
@@ -127,12 +132,12 @@ pages = require("./service/pages.luau").new(
   copy,
   limits
 )
+local geometry = require("./ui/components.luau").layout
+local warmup = require("./service/warmup.luau").new(pages, snapshot, visibility, onlineDevice, geometry)
 local decode = api.decode
 local credentials = api.credentials
 local request = api.request
 local resetPages = pages.reset
-local pageIdentity = pages.identity
-local showPage = pages.show
 local invalidateKind = pages.invalidate
 local readPage = pages.read
 local sessionKinds = { "pc_audio", "watch", "phone_audio", "screen", "webcam", "keyboard" }
@@ -181,6 +186,7 @@ end
 local function pollNotifications(warm)
   if
     (not homeActive() and not warm)
+    or snapshot.privateMessages == false
     or noctalia.getConfig("panel_notifications") == false
     or requests.notifications.pending
   then
@@ -259,6 +265,32 @@ local function pollSessions(warm)
   end)
 end
 
+local function acceptDeviceList(devices)
+  local known = {}
+  for _, device in ipairs(devices) do known[device.id] = true end
+  for id in pairs(knownDevices) do
+    if not known[id] then
+      invalidateKind(id)
+      warmup.forget(id)
+      if visibility.activePage and visibility.activePage.device == id then
+        visibility.activePage, visibility.threads = nil, nil
+      end
+      snapshot.pageRevocations = snapshot.pageRevocations or {}
+      for _, section in ipairs({ "messages", "photos", "apps", "calls", "sms" }) do
+        local scope = section .. ":" .. id
+        if snapshot.deniedPages then snapshot.deniedPages[scope] = nil end
+        snapshot.pageRevocations[scope] = nil
+      end
+      local scope = "device:" .. id
+      snapshot.pageRevocations[scope] = (snapshot.pageRevocations[scope] or 0) + 1
+      if snapshot.smsDenied then snapshot.smsDenied[id] = nil end
+    end
+  end
+  knownDevices = known
+  snapshot.state, snapshot.error, snapshot.devices = "ready", nil, devices
+  for _, device in ipairs(devices) do pages.setSmsAccess(device.id, device.smsAllowed) end
+end
+
 local function poll()
   if requests.devices.pending then
     return
@@ -292,10 +324,12 @@ local function poll()
     end
     requests.devices.pending = false
     local valid = ok and type(data) == "table" and type(data.devices) == "table"
+      and (data.devicesReady == nil or type(data.devicesReady) == "boolean")
     if valid then
-      for _, device in pairs(data.devices) do
+      for index, device in pairs(data.devices) do
         if
-          type(device) ~= "table"
+          type(index) ~= "number" or index % 1 ~= 0 or index < 1 or index > #data.devices
+          or type(device) ~= "table"
           or type(device.id) ~= "string"
           or (device.battery ~= nil and type(device.battery) ~= "table")
         then
@@ -305,20 +339,31 @@ local function poll()
       end
     end
     if valid then
-      local known = {}
-      for _, d in ipairs(data.devices) do
-        known[d.id] = true
+      local waitForDevices = data.devicesReady == false
+        or (data.devicesReady == nil and next(knownDevices) ~= nil and #data.devices == 0 and not legacyEmpty)
+      legacyEmpty = data.devicesReady == nil and #data.devices == 0
+      snapshot.localMessageThreads = data.localMessageThreads == true
+      snapshot.pageCacheV2 = data.pageCacheV2 == true
+      local previousPrivate = snapshot.privateMessages
+      snapshot.privateMessages = data.privateMessages
+      if data.privateMessages == false and previousPrivate ~= false then
+        requests.notifications.generation = requests.notifications.generation + 1
+        requests.notifications.pending = false
+        snapshot.notifications, snapshot.notificationsState = {}, "offline"
       end
-      for _, d in ipairs(snapshot.devices) do
-        if not known[d.id] then
-          resetPages()
-          break
-        end
+      if data.privateMessages == false and not snapshot.messagesDenied then
+        pages.deny(nil, "messages", "private_api_disabled")
+      elseif previousPrivate == false and data.privateMessages == true then
+        snapshot.messagesDenied = nil
+        warmup.rearm("messages")
       end
-      snapshot.state = "ready"
-      snapshot.error = nil
-      snapshot.devices = data.devices
+      if waitForDevices then
+        snapshot.state, snapshot.error, snapshot.devices = "offline", nil, {}
+      else
+        acceptDeviceList(data.devices)
+      end
     else
+      legacyEmpty = false
       snapshot.state = status == 401 and "unauthorized" or "offline"
       snapshot.error = reason or (ok and "invalid_response" or "api_unavailable")
       if status == 401 then
@@ -387,41 +432,66 @@ local handleTextInput = commandHandlers.handleTextInput
 local handlePhoneToggle = commandHandlers.handlePhoneToggle
 local handleCameraCommand = commandHandlers.handleCameraCommand
 local handleRingCommand = commandHandlers.handleRingCommand
+local knownPages = { messages = true, calls = true, photos = true, apps = true, deck = true }
+local function validPage(v)
+  return type(v) == "table" and knownPages[v.page] and type(v.key) == "string"
+    and (v.thread == nil or type(v.thread) == "string")
+    and (v.offset == nil or (type(v.offset) == "number" and v.offset % 1 == 0 and v.offset >= 0 and v.offset <= 5000))
+    and (v.limit == nil or (type(v.limit) == "number" and v.limit % 1 == 0 and v.limit >= 1 and v.limit <= 96))
+end
+
 noctalia.state.watch("nl.command", function(raw)
   local cmd = decode(raw)
   if type(cmd) ~= "table" then
     return
   end
-  if cmd.action == "page" and type(cmd.value) == "table" then
+  if cmd.action == "page" then
     local v = cmd.value
-    local known = { messages = true, calls = true, photos = true, apps = true, deck = true }
-    if not known[v.page] or type(v.key) ~= "string" or type(cmd.device) ~= "string" then
+    if not validPage(v) or type(cmd.device) ~= "string" then
       return
     end
     -- A page command is also an explicit panel-open signal. State watchers may
     -- coalesce the earlier visible command in the same frame; never drop the read.
     visibility.open = true
+    visibility.device = cmd.device
     visibility.section = v.page
     visibility.activePage = cmd
+    visibility.threads = nil
+    if v.page == "messages" and v.thread and v.thread ~= "" and validPage(v.threads)
+      and v.threads.page == "messages" and (v.threads.thread or "") == ""
+    then
+      visibility.threads = { device = cmd.device, value = v.threads }
+    end
+    if not visibility.threads or not snapshot.threads or snapshot.threads.key ~= v.threads.key then
+      snapshot.threads = nil
+    end
+    pages.cancelInactiveRefreshes()
+    warmup.visit(cmd)
+    if visibility.threads then readPage(visibility.threads, false, v.force == true, "threads") end
     readPage(cmd, false)
   elseif cmd.action == "page_leave" then
-    visibility.activePage = nil
+    visibility.activePage, visibility.threads = nil, nil
+    pages.cancelInactiveRefreshes()
     visibility.section = cmd.value == "guide" and "guide" or "home"
     snapshot.page = nil
+    snapshot.threads = nil
     publish()
   elseif cmd.action == "page_action" and type(cmd.value) == "table" then
     handlePageAction(cmd)
   elseif cmd.action == "visible" then
     visibility.open = cmd.value == true or (type(cmd.value) == "table" and cmd.value.open == true)
+    if type(cmd.device) == "string" then visibility.device = cmd.device end
     if visibility.open then
       visibility.section = type(cmd.value) == "table" and cmd.value.page or "home"
     end
     poll()
     if not visibility.open then
-      visibility.activePage = nil
+      visibility.activePage, visibility.threads = nil, nil
+      pages.cancelInactiveRefreshes()
+      snapshot.threads = nil
       -- Keep a completed view so reopening this same page can draw it before
       -- the IPC cache reply. Pending/failed views must never stay stuck.
-      if snapshot.page and snapshot.page.status == "ready" then
+      if snapshot.page and snapshot.page.status == "ready" and not snapshot.page.partial then
         snapshot.page.refreshing = false
       else
         snapshot.page = nil
@@ -500,25 +570,13 @@ function update()
   elseif homeActive() then
     visibility.warmedHome = binding
   end
+  local expired = {}
   for key, job in pairs(cache.jobs) do
     if clock.ticks - job.started >= limits.timeoutTicks then
-      cache.jobs[key] = nil
-      cache.retry[key] = clock.ticks + limits.pageRetryTicks
-      cache.errors[key] = "timeout"
-      if cache.entries[key] then
-        cache.entries[key].failed = true
-        cache.entries[key].error = "timeout"
-      end
-      if
-        visibility.open
-        and visibility.activePage
-        and pageIdentity(visibility.activePage) == key
-      then
-        showPage(visibility.activePage, cache.entries[key], false, true, "failed", nil, "timeout")
-        publish()
-      end
+      expired[key] = job
     end
   end
+  for key, job in pairs(expired) do pages.timeout(key, job) end
   for key, untilTick in pairs(cache.retry) do
     if clock.ticks >= untilTick then
       cache.retry[key] = nil
@@ -625,20 +683,27 @@ function update()
     pollSessions()
   end
   if visibility.open and visibility.activePage and onlineDevice(visibility.activePage.device) then
+    local current = visibility.activePage
+    warmup.visit(current)
     if visibility.activePage.value.page == "calls" and clock.ticks % 3 == 0 then
-      readPage(visibility.activePage, true, true)
-    elseif clock.ticks % 5 == 0 then
-      readPage(visibility.activePage, true, false)
+      readPage(current, true, true)
+    elseif clock.ticks % 5 == 0 and (not pages.isIndex(current) or (current.value.offset or 0) == 0) then
+      readPage(current, true, false)
+      if visibility.threads and pages.isIndex(visibility.threads) and (visibility.threads.value.offset or 0) == 0 then
+        readPage(visibility.threads, true, false, "threads")
+      end
     end
   end
+  warmup.update()
 end
 
 function onConfigChanged()
-  -- The panel submits the new app geometry/limit after the epoch changes.
-  if visibility.activePage and visibility.activePage.value.page == "apps" then
+  -- Geometry already has a different cache key. Unrelated settings should
+  -- not discard photos, conversations or their navigation history.
+  local active = visibility.activePage
+  if active and active.value.page == "apps" and active.value.limit ~= geometry.appsLayout().limit then
     visibility.activePage = nil
   end
-  resetPages()
   requests.devices.generation = requests.devices.generation + 1
   requests.devices.pending = false
   requests.timeline.generation = requests.timeline.generation + 1
@@ -661,7 +726,4 @@ function onConfigChanged()
   pollTimeline()
   pollNotifications()
   pollSessions()
-  if visibility.open and visibility.activePage then
-    readPage(visibility.activePage, false, true)
-  end
 end

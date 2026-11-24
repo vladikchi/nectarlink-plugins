@@ -110,6 +110,22 @@ end
 assert(contains(keyed("sidebar"), "timeline") and not contains(keyed("content"), "timeline"))
 assert(contains(keyed("sidebar"), "notifications"))
 assert(contains(keyed("phone-battery").children[1], "refresh-home"))
+local function batteryStatus()
+  local power = keyed("phone-battery").children
+  return power[#power].props.text
+end
+local battery = fixture.devices[1].battery
+assert(batteryStatus() == "Charging")
+battery.fullInMinutes = 75
+update(fixture)
+assert(batteryStatus() == "≈ 1 h 15 min to full")
+fixture.devices[1].online = false
+update(fixture)
+assert(batteryStatus() == "Last known")
+fixture.devices[1].online, battery.fullInMinutes = true, 0
+update(fixture)
+assert(batteryStatus() == "Charging")
+battery.fullInMinutes = nil
 local countBeforeRefresh = #commands
 keyed("refresh-home").props.onClick()
 assert(#commands == countBeforeRefresh + 1 and commands[#commands].action == "refresh")

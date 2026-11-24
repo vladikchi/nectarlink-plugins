@@ -95,6 +95,8 @@ function M.new(snapshot, requests, clock, visibility, dependencies)
         and visibility.activePage.value.page == kind
       then
         readPage(visibility.activePage, true, true)
+        local threads = kind == "messages" and visibility.threads
+        if threads and threads.device == command.device then readPage(threads, true, true, "threads") end
       end
     end)
   end

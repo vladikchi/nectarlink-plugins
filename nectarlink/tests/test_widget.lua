@@ -1,7 +1,7 @@
 -- Uses the actual widget code with mocked host APIs, no live state or actions.
 -- Run from the project root: lua tests/test_widget.lua.
 dofile("tests/test_runtime.lua")
-local config, watcher, tree, shown, vertical = {}, nil, nil, nil, false
+local config, watcher, tree, tooltip, shown, vertical = {}, nil, nil, nil, nil, false
 local renders = 0
 local openedPanel
 ui = setmetatable({}, {
@@ -19,7 +19,9 @@ barWidget = {
   setVisible = function(v)
     shown = v
   end,
-  setTooltip = function() end,
+  setTooltip = function(rows)
+    tooltip = rows
+  end,
   isVertical = function()
     return vertical
   end,
@@ -58,6 +60,26 @@ assert(renders == before)
 data.page = { items = { { title = "Unrelated message" } } }
 watcher(data)
 assert(renders == before)
+local battery = data.devices[1].battery
+assert(#tooltip == 2 and tooltip[2].value == "Charging", "old API has no estimate")
+battery.fullInMinutes = 35
+watcher(data)
+assert(renders == before + 1 and #tree.children == 3)
+assert(tooltip[3].key == "Time to full" and tooltip[3].value == "≈ 35 min")
+battery.charging = false
+watcher(data)
+assert(#tooltip == 2 and tooltip[2].value == "On battery")
+battery.charging, battery.fullInMinutes = true, "35"
+watcher(data)
+assert(#tooltip == 2, "malformed estimates must not be shown")
+battery.fullInMinutes = 60
+watcher(data)
+assert(tooltip[3].value == "≈ 1 h")
+data.devices[1].online = false
+watcher(data)
+assert(#tooltip == 1, "an offline phone must not display a stale estimate")
+data.devices[1].online = true
+watcher(data)
 config.show_percentage = false
 config.show_charging = false
 onConfigChanged()

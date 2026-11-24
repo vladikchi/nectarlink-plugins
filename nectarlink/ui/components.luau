@@ -39,6 +39,20 @@ function geometry.contentWidth(navigation)
   return geometry.bodyWidth - (navigation and (geometry.navigationWidth + geometry.gap) or 0)
 end
 
+function geometry.appsLayout()
+  local names = noctalia.getConfig("apps_display") ~= "icons"
+  local minWidth, height = names and 99 or 50, names and 88 or 56
+  local width = geometry.contentWidth(noctalia.getConfig("panel_navigation") ~= false) - 2 * page.padding
+  local gap = page.itemGap
+  local columns = math.floor((width + gap) / (minWidth + gap))
+  local rows = math.floor((page.appGrid + gap) / (height + gap))
+  local cellWidth = math.floor((width - (columns - 1) * gap) / columns)
+  return {
+    names = names, width = cellWidth, height = height, columns = columns, rows = rows,
+    limit = math.min(96, columns * rows), gap = (width - columns * cellWidth) / (columns - 1),
+  }
+end
+
 M.layout = geometry
 
 function M.new()
@@ -76,6 +90,18 @@ function M.new()
       noctalia.tr("errors.permission.title"),
       noctalia.tr("errors.permission.body"),
     },
+    private_api_disabled = {
+      noctalia.tr("errors.permission.title"),
+      noctalia.tr("errors.private_api_disabled.body"),
+    },
+    sms_unavailable = {
+      noctalia.tr("messages.sms_not_loaded"),
+      noctalia.tr("errors.sms_unavailable.body"),
+    },
+    photo_details_unavailable = {
+      noctalia.tr("errors.photo_details_unavailable.title"),
+      noctalia.tr("errors.photo_details_unavailable.body"),
+    },
     phone_offline = {
       noctalia.tr("common.disconnected"),
       noctalia.tr("errors.phone_offline.body"),
@@ -89,6 +115,11 @@ function M.new()
       noctalia.tr("errors.request_failed.body"),
     },
   }
+  for _, code in ipairs({ "apps_elevated", "feature_toggle_disabled", "feature_unsupported",
+    "feature_update_phone", "feature_update_desktop", "chat_unavailable", "sms_denied" }) do
+    local key = "errors." .. code
+    failures[code] = { noctalia.tr(key .. ".title"), noctalia.tr(key .. ".body") }
+  end
   local function failure(code)
     local info = failures[code] or failures.request_failed
     return info[1], info[2]
@@ -138,25 +169,6 @@ function M.new()
 
   local function setting(key)
     return noctalia.getConfig(key) ~= false
-  end
-
-  local function appsLayout()
-    local names = noctalia.getConfig("apps_display") ~= "icons"
-    local minWidth, height = names and 99 or 50, names and 88 or 56
-    local width = geometry.contentWidth(setting("panel_navigation")) - 2 * page.padding
-    local gap = page.itemGap
-    local columns = math.floor((width + gap) / (minWidth + gap))
-    local rows = math.floor((page.appGrid + gap) / (height + gap))
-    local cellWidth = math.floor((width - (columns - 1) * gap) / columns)
-    return {
-      names = names,
-      width = cellWidth,
-      height = height,
-      columns = columns,
-      rows = rows,
-      limit = math.min(96, columns * rows),
-      gap = (width - columns * cellWidth) / (columns - 1),
-    }
   end
 
   local function appTileFill(hovered)
@@ -290,7 +302,7 @@ function M.new()
   return {
     activeSession = activeSession,
     setting = setting,
-    appsLayout = appsLayout,
+    appsLayout = geometry.appsLayout,
     appTileFill = appTileFill,
     preview = preview,
     label = label,

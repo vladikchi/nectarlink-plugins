@@ -1,6 +1,7 @@
 --!nonstrict
 -- Compact nl.snapshot view and panel launcher; no HTTP or credentials.
 local palette = require("./ui/palette.luau")
+local charge = require("./ui/battery.luau")
 local snapshot = nil
 local lastView = nil
 local lastRaw = nil
@@ -29,6 +30,7 @@ local function render()
       break
     end
   end
+  local estimate = charge.estimate(phone and phone.battery)
   local color = phone and "on_surface" or palette("muted_border")
   -- Include orientation and settings in the signature so only visible changes redraw.
   local fields = {
@@ -36,6 +38,7 @@ local function render()
     phone and phone.name or "",
     phone and phone.battery and phone.battery.level or "",
     phone and phone.battery and phone.battery.charging or false,
+    estimate or "",
     barWidget.isVertical(),
     setting("hide_offline", false),
     setting("show_percentage", true),
@@ -91,6 +94,9 @@ local function render()
       value = phone.battery.charging and noctalia.tr("battery.charging")
         or noctalia.tr("battery.discharging"),
     })
+  end
+  if estimate then
+    table.insert(rows, { key = noctalia.tr("battery.time_to_full"), value = estimate })
   end
   barWidget.setTooltip(rows)
 end

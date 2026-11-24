@@ -91,11 +91,18 @@ function M.new(onCredentialsChanged)
       end
       callback(ok, status, data, reason)
     end
+    local encoded = body and noctalia.json.encode(body) or nil
+    if path == "/v1/page" and type(encoded) == "string" and type(body.photo_ids) == "table"
+      and next(body.photo_ids) == nil
+    then
+      -- Noctalia encodes an empty Lua table as an object, not a JSON array.
+      encoded = encoded:gsub('"photo_ids"%s*:%s*{%s*}', '"photo_ids":[]', 1)
+    end
     local started = noctalia.http({
       url = "http://127.0.0.1:" .. tostring(cfg.port) .. path,
       method = body and "POST" or "GET",
       headers = { "Authorization: Bearer " .. cfg.token, "Content-Type: application/json" },
-      body = body and noctalia.json.encode(body) or nil,
+      body = encoded,
     }, function(res)
       if completed or requestEpoch ~= authEpoch then
         completed = true

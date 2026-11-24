@@ -1,6 +1,7 @@
 --!nonstrict
 -- The device card displays only connection and battery data reported by NectarLink.
 local palette = require("../palette.luau")
+local charge = require("../battery.luau")
 
 local M = { height = 144 }
 local padding, gap = 12, 12
@@ -167,7 +168,10 @@ function M.render(context, width, model, components, actions)
       or not online and "common.last_known"
       or charging and "battery.charging"
       or "battery.discharging"
-    power[#power + 1] = label(noctalia.tr(batteryState), 11, "on_surface_variant", false, batteryWidth)
+    local estimate = online and level and charge.estimate(battery)
+    local text = estimate and noctalia.tr("battery.estimate_card", { estimate = estimate })
+      or noctalia.tr(batteryState)
+    power[#power + 1] = label(text, 11, "on_surface_variant", false, batteryWidth)
 
     children[#children + 1] = ui.box({
       width = 1, height = 106, fill = palette("muted_border", 0.55),

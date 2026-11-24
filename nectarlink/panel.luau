@@ -58,6 +58,7 @@ local setting = components.setting
 local appsLayout = components.appsLayout
 local titles = components.titles
 local memory = require("./ui/page_memory.luau").new(model)
+local access = require("./message_access.luau")
 local function decode(raw)
   if not raw then
     return nil
@@ -111,8 +112,7 @@ local function threadsQuery()
 end
 
 local function loadPage(force)
-  -- Keep exactly one active read. While a thread is selected, the left pane
-  -- uses the bounded presentation cache instead of polling a second endpoint.
+  -- One command binds both panes to the same phone and selection.
   local page = model.page
   if page == "home" or page == "guide" or not model.selected
     or model.snapshot.state == "unauthorized" or model.snapshot.state == "unconfigured" then
@@ -144,7 +144,13 @@ local function loadPage(force)
     return
   end
   query.force = force == true
+  if page == "messages" and thread then query.threads = threadsQuery() end
   send("page", model.selected, query)
+end
+
+local function sectionDenied(snapshot, page, device)
+  return (page == "messages" and snapshot.messagesDenied == true)
+    or (page and device and snapshot.deniedPages and snapshot.deniedPages[page .. ":" .. device] == true)
 end
 
 local function threadsView()
@@ -152,11 +158,20 @@ local function threadsView()
   local key = threadsQuery().key
   local view = model.pageView
   if view and view.key == key then return view end
+  view = model.snapshot.threads
+  if view and view.key == key and (view.status == "ready" or sectionDenied(model.snapshot, "messages", model.selected)) then
+    return view
+  end
+  if sectionDenied(model.snapshot, "messages", model.selected) then return nil end
+  if view and view.key == key then return memory.resolve(key, view) end
   return memory.saved(key)
 end
 
 local function selectThread(thread, threadList)
   if not model.opened or model.page ~= "messages" then return end
+  if thread and (thread.kind == "sms" or access.smsThread(thread.id))
+    and model.snapshot.smsDenied and model.snapshot.smsDenied[model.selected]
+  then return end
   memory.remember(model.pageView)
   if threadList then model.threadList = threadList end
   model.thread = thread
@@ -395,6 +410,39 @@ local function acceptSnapshot(raw)
   if type(value) ~= "table" then
     return
   end
+  local before = model.snapshot
+  local old, current = before.pageRevocations or {}, value.pageRevocations or {}
+  local function revoked(kind, device)
+    if not kind then return false end
+    local scope = device and kind .. ":" .. device or kind
+    return old[kind] ~= current[kind] or old[scope] ~= current[scope]
+  end
+  local function removed(device)
+    return device and revoked("device", device)
+  end
+  local function smsRevoked(device)
+    return device and (revoked("sms", device) or (value.smsDenied and value.smsDenied[device]))
+  end
+  local function scrubSnapshotView(view)
+    if not view or view.kind ~= "messages" or not value.smsDenied or not value.smsDenied[view.device] then
+      return view
+    end
+    if access.smsThread(view.thread) then return nil end
+    if view.thread == "" and view.data then view.data = access.withoutSms(view.data) end
+    return view
+  end
+  value.page, value.threads = scrubSnapshotView(value.page), scrubSnapshotView(value.threads)
+  if removed(model.selected) or revoked(model.page, model.selected)
+    or (sectionDenied(value, model.page, model.selected) and not sectionDenied(before, model.page, model.selected))
+  then
+    resetPage()
+  elseif model.page == "messages" and model.selected and revoked("sms", model.selected) then
+    if model.thread and (model.thread.kind == "sms" or access.smsThread(model.thread.id)) then
+      resetPage()
+    else
+      model.pageRequested = false
+    end
+  end
   model.snapshot = value
   for name, channel in pairs(actionChannels) do
     local pending = model.actionReceipts[name]
@@ -415,11 +463,46 @@ local function acceptSnapshot(raw)
     memory.clear()
     resetPage()
   else
+    local known = {}
+    if value.state == "ready" then
+      for _, device in ipairs(value.devices) do known[device.id] = true end
+    end
+    local pageFailure = value.page and value.page.status == "failed" and value.page or nil
+    local deniedChat = pageFailure and pageFailure.kind == "messages" and type(pageFailure.thread) == "string"
+      and pageFailure.thread:sub(1, 5) == "chat:"
+      and (pageFailure.error == "chat_unavailable" or pageFailure.error == "permission"
+        or pageFailure.error == "feature_toggle_disabled" or pageFailure.error == "feature_unsupported"
+        or pageFailure.error == "feature_update_phone" or pageFailure.error == "feature_update_desktop")
+    if deniedChat and model.page == "messages" and model.selected == pageFailure.device
+      and model.thread and model.thread.id == pageFailure.thread
+    then
+      model.detail, model.detailPart = nil, 0
+    end
+    memory.discard(function(saved)
+      return (saved.device and value.state == "ready" and not known[saved.device])
+        or (deniedChat and saved.device == pageFailure.device and saved.kind == "messages"
+          and saved.thread == pageFailure.thread)
+        or removed(saved.device)
+        or sectionDenied(value, saved.kind, saved.device)
+        or revoked(saved.kind, saved.device)
+    end)
+    memory.revokeSms(smsRevoked)
     memory.remember(value.page)
+    if model.page == "messages" and model.selected and not sectionDenied(value, "messages", model.selected) then
+      memory.remember(value.threads, threadsQuery().key)
+    end
     if model.pageKey then
       model.pageView = memory.resolve(model.pageKey, value.state == "ready" and value.page or nil)
       if value.state ~= "ready" and model.pageView then
         model.pageView.refreshing = false
+      end
+      if model.page == "photos" and model.detail and model.pageView and model.pageView.data then
+        for _, photo in ipairs(model.pageView.data.items or {}) do
+          if photo.id == model.detail.id and photo.thumbnailPath ~= model.detail.thumbnailPath then
+            model.detail = photo
+            break
+          end
+        end
       end
     end
   end
@@ -442,7 +525,7 @@ function onOpen()
   model.hotspotMenu = nil
   acceptSnapshot(noctalia.state.get("nl.snapshot") or latestRaw)
   model.pageKey = nil
-  send("visible", nil, { open = true, page = model.page })
+  send("visible", model.selected, { open = true, page = model.page })
   render()
 end
 
@@ -456,7 +539,7 @@ function onClose()
   model.pageKey = nil
   model.detail = nil
   model.hotspotMenu = nil
-  send("visible", nil, false)
+  send("visible", model.selected, false)
 end
 
 function onConfigChanged()

@@ -298,7 +298,7 @@ if latest.sessionBusy then
   end
   assert(not latest.sessionBusy)
 end
-command("page", "one", { page = "photos", key = "timeout-page" })
+command("page", "one", { page = "photos", key = "timeout-page", album = "uncached" })
 for _ = 1, 16 do
   update()
 end

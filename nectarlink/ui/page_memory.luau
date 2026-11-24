@@ -2,6 +2,7 @@
 -- Presentation memory avoids a blank frame before the service responds.
 -- service/pages.luau still owns freshness, TTL, HTTP, auth and single-flight.
 local size = require("../cache_size.luau")
+local access = require("../message_access.luau")
 local M = {}
 local navigationFields = {
   "offset",
@@ -26,7 +27,7 @@ local function store(maxEntries, maxBytes)
       return entry.value
     end
   end
-  local function put(key, value)
+  local function put(key, value, pin)
     local weight = size(value, maxBytes)
     if entries[key] then
       bytes = bytes - entries[key].weight
@@ -35,15 +36,21 @@ local function store(maxEntries, maxBytes)
     if weight > maxBytes then
       return
     end
+    if pin then
+      for _, entry in pairs(entries) do
+        if entry.pin == pin then entry.pin = nil end
+      end
+    end
     clock = clock + 1
-    entries[key] = { value = value, weight = weight, used = clock }
+    entries[key] = { value = value, weight = weight, used = clock, pin = pin }
     bytes = bytes + weight
     while true do
-      local count, oldest, stamp = 0, nil, math.huge
+      local count, oldest, stamp, rank = 0, nil, math.huge, math.huge
       for id, entry in pairs(entries) do
         count = count + 1
-        if entry.used < stamp then
-          oldest, stamp = id, entry.used
+        local priority = entry.pin and 1 or 0
+        if priority < rank or (priority == rank and entry.used < stamp) then
+          oldest, stamp, rank = id, entry.used, priority
         end
       end
       if count <= maxEntries and bytes <= maxBytes then
@@ -53,7 +60,23 @@ local function store(maxEntries, maxBytes)
       entries[oldest] = nil
     end
   end
-  return { get = get, put = put }
+  local function discard(test)
+    for key, entry in pairs(entries) do
+      if test(entry.value) then
+        entries[key] = nil
+        bytes = bytes - entry.weight
+      end
+    end
+  end
+  local function scrub(replace)
+    local changes = {}
+    for key, entry in pairs(entries) do
+      local updated = replace(entry.value)
+      if updated then changes[key] = updated end
+    end
+    for key, value in pairs(changes) do put(key, value) end
+  end
+  return { get = get, put = put, discard = discard, scrub = scrub }
 end
 
 function M.new(model)
@@ -66,7 +89,7 @@ function M.new(model)
     if not device then
       return
     end
-    local value = {}
+    local value = { device = device, kind = page }
     for _, field in ipairs(navigationFields) do
       value[field] = model[field]
     end
@@ -90,15 +113,20 @@ function M.new(model)
       model.cursors[key] = cursor
     end
   end
-  local function remember(view)
+  local function remember(view, expectedKey)
     -- Accept only the exact request, never another page or a late response.
     if
       view
-      and view.key == model.pageKey
+      and view.key == (expectedKey or model.pageKey)
       and view.status == "ready"
+      and not view.partial
       and type(view.data) == "table"
     then
-      views.put(view.key, { key = view.key, status = "ready", data = view.data })
+      local device, kind = view.device or model.pageDevice, view.kind or model.page
+      views.put(view.key, {
+        key = view.key, status = "ready", data = view.data, device = device, kind = kind,
+        thread = view.thread or (kind == "messages" and model.thread and model.thread.id or ""),
+      }, kind == "photos" and device or nil)
     end
   end
   local function resolve(key, incoming)
@@ -118,6 +146,9 @@ function M.new(model)
         key = key,
         status = "ready",
         data = saved.data,
+        device = saved.device,
+        kind = saved.kind,
+        thread = saved.thread,
         stale = true,
         refreshing = not incoming or incoming.key ~= key or incoming.status == "loading",
         refreshFailed = incoming and incoming.key == key and incoming.status ~= "loading" or false,
@@ -126,13 +157,33 @@ function M.new(model)
     end
     return incoming and incoming.key == key and incoming or nil
   end
+  local function discard(test)
+    views.discard(test)
+    navigation.discard(test)
+  end
   local function clear()
     views = store(24, 4 * 1024 * 1024)
     navigation = store(32, 256 * 1024)
     model.pageView = nil
   end
+  local function revokeSms(affected)
+    views.discard(function(v) return v.kind == "messages" and affected(v.device) and access.smsThread(v.thread) end)
+    views.scrub(function(v)
+      if v.kind == "messages" and affected(v.device) and v.thread == "" then
+        local data = access.withoutSms(v.data)
+        if data ~= v.data then
+          return { key = v.key, status = v.status, data = data, device = v.device, kind = v.kind, thread = "" }
+        end
+      end
+    end)
+    navigation.discard(function(v)
+      return v.kind == "messages" and affected(v.device) and v.thread
+        and (v.thread.kind == "sms" or access.smsThread(v.thread.id))
+    end)
+  end
   return {
-    save = save, restore = restore, remember = remember, resolve = resolve, clear = clear,
+    save = save, restore = restore, remember = remember, resolve = resolve, clear = clear, discard = discard,
+    revokeSms = revokeSms,
     saved = function(key)
       return views.get(key)
     end,

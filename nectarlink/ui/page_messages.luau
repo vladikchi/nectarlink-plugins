@@ -72,13 +72,21 @@ function M.new(model, components, actions, forms, items)
         and model.threadList == nav
     end
     local controls = {}
-    if data and (#nav.cursors > 0 or data.more == true or #records > count) then
+    if data and not view.partial and (#nav.cursors > 0 or data.more == true or #records > count) then
       controls[1] = items.steps(data, count, nav, false, function(nextNav)
         -- Moving the left pager returns to the list query, not the active thread's cursor.
         if currentList() then actions.selectThread(nil, nextNav) end
       end, "thread-list-pagination", "threads-pager")
     end
-    local children = { header(inner, noctalia.tr("messages.threads"), nil, controls) }
+    local listStatus
+    if view and view.partial then
+      listStatus = noctalia.tr(view.refreshing and "messages.loading_sms" or "messages.sms_not_loaded")
+    elseif view and view.refreshing then
+      listStatus = noctalia.tr("cache.refreshing")
+    elseif view and view.error and data then
+      listStatus = noctalia.tr("cache.refresh_failed")
+    end
+    local children = { header(inner, noctalia.tr("messages.threads"), listStatus, controls) }
     local function add(node)
       if node then children[#children + 1] = node end
     end

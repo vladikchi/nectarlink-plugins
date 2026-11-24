@@ -71,6 +71,11 @@
     "power": "Power",
     "charging": "Charging",
     "discharging": "On battery",
+    "time_to_full": "Time to full",
+    "estimate_card": "{estimate} to full",
+    "estimate_minutes": "≈ {minutes} min",
+    "estimate_hours": "≈ {hours} h",
+    "estimate_hours_minutes": "≈ {hours} h {minutes} min",
     "last_known": "Last known battery",
     "unknown": "Battery unknown",
     "phone": "Phone battery"
@@ -132,6 +137,9 @@
     "message": "Message",
     "you": "You",
     "threads": "Conversations",
+    "loading_sms": "Loading SMS from the phone…",
+    "sms_not_loaded": "SMS not loaded",
+    "refresh_both": "Refresh the conversation list and the open conversation",
     "choose_thread": "Messages",
     "choose_thread_title": "Select a conversation",
     "choose_thread_hint": "Open SMS or notifications from the list, or start a new SMS.",
@@ -287,6 +295,18 @@
       "title": "Feature access denied",
       "body": "Check feature settings and permissions in NectarLink and Android. HTTP 403 alone does not identify the cause."
     },
+    "private_api_disabled": {
+      "body": "On the PC, enable Notifications and messages in NectarLink's Local API settings, then refresh."
+    },
+    "apps_elevated": { "title": "Wireless debugging required", "body": "Set up wireless debugging in NectarLink on the phone (Elevated mode), then refresh the app list." },
+    "feature_toggle_disabled": { "title": "Feature disabled for this phone", "body": "Allow this feature for the selected phone in NectarLink settings." },
+    "feature_unsupported": { "title": "Feature not supported", "body": "This feature is unavailable for this pair of devices." },
+    "feature_update_phone": { "title": "Update NectarLink on the phone", "body": "Install the latest NectarLink on the phone, then refresh this page." },
+    "feature_update_desktop": { "title": "Update NectarLink on the PC", "body": "Install the latest NectarLink on the computer, then refresh this page." },
+    "chat_unavailable": { "title": "This chat is unavailable", "body": "The chat was removed or hidden in NectarLink’s notification settings. Other conversations are still available." },
+    "sms_denied": { "title": "SMS access is disabled", "body": "Check the SMS permission and the Messages setting in NectarLink on the phone." },
+    "sms_unavailable": { "body": "The phone did not return the SMS list. The last complete list is kept if available." },
+    "photo_details_unavailable": { "title": "Photo previews or albums unavailable", "body": "The photo list is still available. Refresh to retry missing previews and albums." },
     "phone_offline": {
       "title": "Phone is offline",
       "body": "Check the phone connection in NectarLink and its Android permissions. Saved data may be out of date."

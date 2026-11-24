@@ -2,6 +2,8 @@
 dofile("tests/test_runtime.lua")
 local watchers, latest, reads = {}, {}, {}
 local devices = { { id = "one", online = true } }
+local v2, time = false, 0
+local jobs, pages = {}, {}
 noctalia = {
   getConfig = function()
     return nil
@@ -18,6 +20,7 @@ noctalia = {
     end,
   },
   setUpdateInterval = function() end,
+  nowMs = function() return time end,
   state = {
     watch = function(k, cb)
       watchers[k] = cb
@@ -27,10 +30,18 @@ noctalia = {
     end,
   },
   http = function(req, cb)
-    assert(req.method == "GET", "warmup must be read-only")
     local path = req.url:match("/v1/[^?]+")
+    if path == "/v1/page" then
+      assert(v2 and req.method == "POST", "only upgraded page reads may be warmed")
+      jobs[#jobs + 1] = cb
+      pages[#pages + 1] = req.body
+      return true
+    end
+    assert(req.method == "GET", "warmup must never dispatch actions")
     reads[path] = (reads[path] or 0) + 1
-    local data = path == "/v1/devices" and { devices = devices }
+    local data = path == "/v1/devices" and {
+      devices = devices, pageCacheV2 = v2, privateMessages = true, localMessageThreads = true,
+    }
       or (
         path == "/v1/sessions" and { devices = {} }
         or (path == "/v1/notifications" and { notifications = {} } or { items = {} })
@@ -58,4 +69,57 @@ assert(
   "no recurring hidden Home polling"
 )
 assert(not reads["/v1/page"])
-print("PASS: bounded pre-open Home warmup; zero action requests and no hidden polling loop")
+
+local function command(action, device, value)
+  watchers["nl.command"]({ action = action, device = device, value = value })
+end
+local function advance(ms)
+  time = time + ms
+  update()
+end
+local function finish(data)
+  local cb = assert(table.remove(jobs, 1))
+  cb({ ok = true, status = 200, body = data })
+end
+
+v2 = true
+devices = { { id = "one", online = true }, { id = "two", online = true } }
+command("visible", "two", false)
+advance(0)
+advance(8000)
+assert(#pages == 0, "wait for a stable connection")
+advance(2000)
+advance(2000)
+assert(#pages == 1 and pages[1].device == "two" and pages[1].thread_index)
+command("page", "two", { page = "messages", key = "list", limit = 7 })
+command("page", "two", { page = "messages", key = "list", limit = 7 })
+assert(#pages == 2 and pages[2].local_only, "joining warmup allows one local preview, not another phone read")
+table.remove(jobs, 2)({ ok = true, status = 200, body = { items = { { id = "chat:local" } } } })
+assert(latest.page.partial and latest.page.data.items[1].id == "chat:local")
+finish({ items = { { id = "sms" } } })
+assert(latest.page.key == "list" and latest.page.data.items[1].id == "sms")
+advance(1000)
+assert(#pages == 2, "warmup yields to an open panel")
+command("visible", "two", false)
+advance(1000)
+assert(#pages == 3 and pages[3].photo_rows_only)
+finish({ items = { { id = "photo", thumbnailPath = "/cached/photo" } }, albums = {} })
+advance(2000)
+assert(#pages == 4 and pages[4].page == "apps" and pages[4].limit > 0)
+finish({ items = { { id = "app" } } })
+devices[2].online = false
+command("refresh")
+advance(2000)
+devices[2].online = true
+command("refresh")
+advance(0)
+advance(10000)
+assert(#pages == 4, "a short reconnect must not start the queue again")
+for _ = 1, 20 do advance(2000) end
+assert(#pages == 4, "no frequently recurring hidden page requests")
+advance(150000)
+assert(#pages == 5 and pages[5].page == "messages", "refresh a recently visited section")
+finish({ items = { { id = "new-sms" } } })
+advance(1900000)
+assert(#pages == 5, "never-visited photos and apps are not kept polling")
+print("PASS: bounded Home and page warmup, live reads join in-flight work, reconnect preserves cache, no actions")

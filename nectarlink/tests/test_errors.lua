@@ -78,6 +78,18 @@ assert(last.error == "invalid_response" and not last.ok)
 request()
 callback({ ok = true, status = 200, body = { devices = {} } })
 assert(last.ok and last.error == nil)
+do
+  local encode, http = noctalia.json.encode, noctalia.http
+  noctalia.json.encode = function()
+    return '{"device":"fixture","page":"photos","photo_ids": { }}'
+  end
+  noctalia.http = function(req)
+    assert(req.body == '{"device":"fixture","page":"photos","photo_ids":[]}')
+    return true
+  end
+  api.request("/v1/page", { page = "photos", photo_ids = {} }, function() end)
+  noctalia.json.encode, noctalia.http = encode, http
+end
 print("PASS: credential/read exceptions, HTTP reasons, malformed JSON/callback and recovery")
 
 -- Actual service: repeated read failures never generate notification/process spam.

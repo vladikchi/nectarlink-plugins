@@ -69,10 +69,12 @@ function M.new(model, components, actions, items)
       }), 194)
     end
     if page == "messages" then
+      local smsDenied = model.snapshot.smsDenied and model.snapshot.smsDenied[target]
       append(headingButton("new-sms", "message-plus", "messages.new_sms", function()
         if model.selected ~= target then return end
         actions.selectThread({ id = "", kind = "sms", title = noctalia.tr("messages.new_sms"), addresses = {} })
-      end, noctalia.tr("messages.new_sms"), 142, phone ~= nil and (not model.thread or model.thread.id ~= "")))
+      end, noctalia.tr("messages.new_sms"), 142, phone ~= nil and not smsDenied
+        and (not model.thread or model.thread.id ~= "")))
     elseif page == "photos" and detail then
       local dispatch = actions.bindAction("page", target)
       local waiting, waitingFor = actions.actionBusy("page")
@@ -107,7 +109,9 @@ function M.new(model, components, actions, items)
       end))
     end
     if page ~= "guide" then
-      append(headingButton("refresh-page", "refresh", "common.refresh_page", function()
+      local hint = page == "messages" and model.thread and model.thread.id ~= ""
+        and "messages.refresh_both" or "common.refresh_page"
+      append(headingButton("refresh-page", "refresh", hint, function()
         refresh(true)
       end, nil, nil, phone ~= nil))
     end

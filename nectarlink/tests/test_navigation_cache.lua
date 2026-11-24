@@ -126,7 +126,7 @@ onClose()
 onOpen()
 assert(last("page").value.offset == offset and key("page-item-camera-page2"))
 
--- The two message panes retain separate cursors with just one active read.
+-- The two message panes retain separate cursors and use one IPC command.
 onNavigate("messages")
 respond({ items = { { id = "first", title = "First page", kind = "sms" } }, more = true })
 key("threads-pager-next").props.onClick()
@@ -145,6 +145,19 @@ onNavigate("messages")
 assert(last("page").value.thread == "thread" and last("page").value.before == 20)
 assert(key("threads-pager-prev") and key("thread-item-thread") and key("page-item-sms"))
 noLoading()
+key("refresh-page").props.onClick()
+local refresh = last("page").value
+assert(refresh.force and refresh.thread == "thread" and refresh.before == 20)
+assert(refresh.threads.key == leftKey and refresh.threads.offset == 1)
+assert(key("thread-item-thread") and key("page-item-sms"), "refresh must not blank either pane")
+
+fixture.threads = { key = leftKey, status = "ready", kind = "messages", thread = "", device = "one",
+  data = { items = { { id = "updated-left", kind = "sms" } } } }
+watchers["nl.snapshot"](fixture)
+onClose()
+fixture.threads = nil
+onOpen()
+assert(key("thread-item-updated-left") and key("page-item-sms"), "reopen uses the latest left pane")
 
 -- Returning to a section must not replay an action or revive an old click.
 key("back-to-threads").props.onClick()
@@ -208,6 +221,48 @@ onNavigate("photos")
 assert(last("page").value.album == "camera-album" and last("page").value.before_id == "photo1")
 assert(key("page-item-photo2"))
 noLoading()
+onNavigate("apps")
+fixture.messagesDenied = true
+watchers["nl.snapshot"](fixture)
+onNavigate("photos")
+assert(key("page-item-photo2"), "a messages permission change must not evict photos")
+assert(last("page").value.before_id == "photo1")
+onNavigate("messages")
+fixture.messagesDenied = nil
+respond({ items = { { id = "before-revocation", title = "Cached chat", kind = "chat" } } })
+onClose()
+-- The panel missed the revoked state while hidden; the revision still clears old data.
+fixture = { state = "ready", cacheEpoch = 0, devices = fixture.devices, pageRevocations = { messages = 1 } }
+onOpen()
+assert(not key("thread-item-before-revocation"))
+onNavigate("photos")
+assert(key("page-item-photo2"), "an unseen Messages revocation must not invalidate photos")
+onNavigate("messages")
+respond({ items = { { id = "private-sms", kind = "sms" }, { id = "chat:keep", kind = "chat" } } })
+key("thread-item-private-sms").props.onClick()
+respond({ items = { { id = "private-history", title = "Private history" } } })
+assert(key("page-item-private-history"))
+onClose()
+fixture = {
+  state = "ready", cacheEpoch = 0, devices = fixture.devices,
+  pageRevocations = { messages = 1, ["sms:one"] = 1 }, smsDenied = { one = true },
+}
+onOpen()
+assert(last("page").value.thread == nil and not key("page-item-private-history"))
+assert(not key("thread-item-private-sms") and key("thread-item-chat:keep"))
+assert(not key("new-sms").props.onClick)
+onNavigate("photos")
+assert(key("page-item-photo2"), "an SMS-only revocation must not invalidate photos")
+onNavigate("messages")
+respond({ items = { { id = "chat:keep", kind = "chat" } } })
+key("thread-item-chat:keep").props.onClick()
+respond({ items = { { id = "chat-body", subtitle = "Fixture body" } } })
+key("page-item-chat-body").props.onClick()
+assert(key("message-detail"))
+fixture.page = { key = last("page").value.key, status = "failed", kind = "messages",
+  thread = "chat:keep", device = "one", error = "chat_unavailable" }
+watchers["nl.snapshot"](fixture)
+assert(not key("message-detail") and key("message-state"))
 onNavigate("apps")
 
 -- Authentication epoch change discards BOTH data and navigation memory.
