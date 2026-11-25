@@ -62,6 +62,12 @@ assert(
 local b = start(nil)
 token = string.rep("a", 64)
 api.credentials() -- A→B→A must not revive the first A.
+count = #jobs
+rejected = nil
+api.request("/test", { action = "mock" }, function(_, _, _, reason)
+  rejected = reason
+end, cfgA)
+assert(#jobs == count and rejected == "auth_changed", "rebound token must not revive old validated credentials")
 a.cb({ ok = true, status = 200, body = {} })
 b.cb({ ok = true, status = 200, body = {} })
 assert(callbacks == 0)
@@ -182,12 +188,10 @@ print(
 )
 
 -- Invalid fields must fail BEFORE caching and preserve the last valid result.
-local cache = { entries = {}, jobs = {}, retry = {}, epoch = 0, clock = 0 }
 local snapshot = {}
 local command = { device = "one", value = { page = "calls", key = "calls" } }
 local pending
 local pages = require("./service/pages.luau").new(
-  cache,
   { open = true, activePage = command },
   { ticks = 0 },
   snapshot,
@@ -203,7 +207,6 @@ local pages = require("./service/pages.luau").new(
   function()
     return true
   end,
-  copy,
   { updateIntervalMs = 2000, pageCacheLimit = 24, pageRetryTicks = 15 }
 )
 local good = {
@@ -234,6 +237,9 @@ local cases = {
   end,
   function(d)
     d.items[1].date = math.huge
+  end,
+  function(d)
+    d.items[1].date = math.mininteger
   end,
   function(d)
     d.items[1].duration = 0 / 0
@@ -282,7 +288,7 @@ for _, bad in ipairs(cases) do
   pending(true, 200, data)
   assert(snapshot.page.error == "invalid_response" and snapshot.page.stale)
   assert(snapshot.page.data.items[1].duration == 2)
-  assert(cache.entries[pages.identity(command)].data.items[1].duration == 2)
+  assert(pages.hasCachedPage(command))
 end
 pages.read(command, false, true)
 pending(true, 200, copy(good))

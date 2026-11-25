@@ -80,6 +80,31 @@ callback({ ok = true, status = 200, body = { devices = {} } })
 assert(last.ok and last.error == nil)
 do
   local encode, http = noctalia.json.encode, noctalia.http
+  local dispatched, completions = 0, 0
+  local function failed(ok, status, data, reason)
+    completions = completions + 1
+    assert(not ok and status == 0 and data == nil and reason == "request_failed")
+  end
+  noctalia.http = function() dispatched = dispatched + 1 end
+  noctalia.json.encode = function() error("PRIVATE serialization error") end
+  api.request("/test", {}, failed)
+  noctalia.json.encode = function() return nil end
+  api.request("/test", {}, failed)
+  assert(dispatched == 0 and completions == 2, "an invalid body is never dispatched")
+  noctalia.json.encode = encode
+  noctalia.http = function() error("PRIVATE transport error") end
+  request()
+  assert(last.error == "api_unavailable" and not last.ok)
+  noctalia.http = function(_, cb)
+    cb({ ok = true, status = 200, body = {} })
+    return true
+  end
+  local called, err = pcall(api.request, "/test", nil, function() error("fixture callback") end)
+  assert(not called and err:match("fixture callback"), "transport must not mask errors in client callbacks")
+  noctalia.http = http
+end
+do
+  local encode, http = noctalia.json.encode, noctalia.http
   noctalia.json.encode = function()
     return '{"device":"fixture","page":"photos","photo_ids": { }}'
   end
@@ -118,6 +143,13 @@ do
   end, config)
   assert(calls == 1)
   noctalia.getenv, noctalia.http = nil, http
+end
+do
+  local fileReads = reads
+  noctalia.getenv = function() error("PRIVATE environment error") end
+  request()
+  assert(reads == fileReads and last.error == "loopback_proxy", "unverifiable environment must fail closed")
+  noctalia.getenv = nil
 end
 print("PASS: credential/read exceptions, HTTP reasons, malformed JSON/callback and recovery")
 
@@ -196,20 +228,21 @@ print(
 )
 
 -- Actual page cache: errors remain scoped to a page and never poison valid data.
-local cache = { entries = {}, jobs = {}, retry = {}, epoch = 0, clock = 0 }
 local snapshot = { state = "ready" }
 local visibility = { open = true }
-local pending
-local pages = require("./service/pages.luau").new(cache, visibility, { ticks = 0 }, snapshot, {
+local clock = { ticks = 0 }
+local pending, pageRequests = nil, 0
+local pages = require("./service/pages.luau").new(visibility, clock, snapshot, {
   credentials = function()
     return {}
   end,
   request = function(_, _, cb)
+    pageRequests = pageRequests + 1
     pending = cb
   end,
 }, function() end, function()
   return true
-end, copy, { pageCacheLimit = 24, pageRetryTicks = 15, updateIntervalMs = 2000 })
+end, { pageCacheLimit = 24, pageRetryTicks = 15, updateIntervalMs = 2000, timeoutTicks = 15 })
 local command = { device = "one", value = { key = "apps", page = "apps" } }
 visibility.activePage = command
 pages.read(command)
@@ -242,8 +275,45 @@ visibility.activePage = command
 pages.read(command, false, true)
 pending(true, 200, { items = { { id = "recovered", title = "Recovered" } } })
 assert(snapshot.page.error == nil and not snapshot.page.stale)
+
+local denied = { device = "one:fixture", value = { key = "apps-search", page = "apps", search = "test:search" } }
+local other = { device = "one:fixture-other", value = denied.value }
+for _, cmd in ipairs({ denied, other }) do
+  visibility.activePage = cmd
+  pages.read(cmd)
+  pending(false, 403, { error = "feature_denied" })
+end
+pages.allowApps(denied.device)
+local beforeGrant = pageRequests
+visibility.activePage = other
+pages.read(other)
+assert(pageRequests == beforeGrant, "Apps grant must not clear another phone's cooldown")
+visibility.activePage = unsupported
+pages.read(unsupported)
+assert(pageRequests == beforeGrant, "Apps grant must not clear another section's cooldown")
+visibility.activePage = denied
+pages.read(denied)
+assert(pageRequests == beforeGrant + 1, "grant must allow an immediate read even without a cached page")
+pending(true, 200, { items = {} })
+clock.ticks = 16
+pages.expire()
+visibility.activePage = other
+pages.read(other)
+assert(pageRequests == beforeGrant + 2, "expired cooldown must release its request")
+
+local private = { device = "one", value = { key = "private", page = "messages" } }
+visibility.activePage = private
+pages.read(private)
+pending(false, 403, { error = "not_allowed" })
+local beforePolicy = pageRequests
+pages.setNotificationPolicy({ instance = string.rep("e", 64), revision = "1", hidden = {} })
+pages.read(private)
+assert(pageRequests == beforePolicy and snapshot.page.error == "private_api_disabled")
+pages.allowPrivate()
+pages.read(private)
+assert(pageRequests == beforePolicy + 1, "only restoring private access releases its cooldown")
 print(
-  "PASS: page-local 403/404, cache retention, invalid item rejection, retry reason persistence and recovery"
+  "PASS: scoped 403/404, cache retention, invalid replies and isolated cooldown recovery"
 )
 
 -- UI: fixed geometry, readable instructions and a help action instead of a guessed cause.

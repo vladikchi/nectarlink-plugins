@@ -6,7 +6,6 @@ local limits =
 local snapshot = { state = "unconfigured", devices = {} }
 local clock = { ticks = 0 }
 local visibility = { open = false, section = "home", activePage = nil, warmedHome = nil }
-local cache = { entries = {}, jobs = {}, retry = {}, epoch = 0, clock = 0 }
 local access = require("./message_access.luau")
 local knownDevices = {}
 local knownAppAccess = {}
@@ -125,14 +124,12 @@ local api = require("./service/api.luau").new(function(reason)
   end
 end)
 pages = require("./service/pages.luau").new(
-  cache,
   visibility,
   clock,
   snapshot,
   api,
   publish,
   onlineDevice,
-  copy,
   limits
 )
 local geometry = require("./ui/components.luau").layout
@@ -604,34 +601,23 @@ function update()
   clock.ticks = clock.ticks + 1
   -- One small read-only Home warmup for this API binding. Going offline
   -- briefly does not put Home (or any of the other tabs) back in the queue.
-  if snapshot.state == "ready" and visibility.warmedHome ~= cache.epoch then
+  local cacheEpoch = snapshot.cacheEpoch or 0
+  if snapshot.state == "ready" and visibility.warmedHome ~= cacheEpoch then
     for _, d in ipairs(snapshot.devices) do
       if d.online then
         if not visibility.open then
-          visibility.warmedHome = cache.epoch
+          visibility.warmedHome = cacheEpoch
           pollTimeline(true)
           pollNotifications(true)
           pollSessions(true)
         elseif homeActive() then
-          visibility.warmedHome = cache.epoch
+          visibility.warmedHome = cacheEpoch
         end
         break
       end
     end
   end
-  local expired = {}
-  for key, job in pairs(cache.jobs) do
-    if clock.ticks - job.started >= limits.timeoutTicks then
-      expired[key] = job
-    end
-  end
-  for key, job in pairs(expired) do pages.timeout(key, job) end
-  for key, untilTick in pairs(cache.retry) do
-    if clock.ticks >= untilTick then
-      cache.retry[key] = nil
-      cache.errors[key] = nil
-    end
-  end
+  pages.expire()
   if snapshot.pageActionBusy and clock.ticks - requests.actions.started >= limits.timeoutTicks then
     requests.actions.generation = requests.actions.generation + 1
     snapshot.pageActionBusy = false

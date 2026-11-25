@@ -38,37 +38,41 @@ function M.allowsScope(policy, scope, previousInstance)
   return not policy or (not previousInstance and scopeId(scope) and not policy.hidden[scope])
 end
 
-function M.withoutHiddenChats(data, policy, previousInstance)
-  if not policy or type(data) ~= "table" or type(data.items) ~= "table" then return data end
-  local items = {}
-  for _, row in ipairs(data.items) do
-    if type(row) == "table" and (not (row.kind == "chat" or M.chatThread(row.id))
-      or M.allowsScope(policy, row.appScope, previousInstance)) then
-      items[#items + 1] = row
-    end
-  end
-  if #items == #data.items then return data end
-  local result = {}
-  for k, v in pairs(data) do result[k] = v end
-  result.items = items
-  return result
-end
-
--- Conversation lists mix two independently permitted sources. History
--- responses have no row kind; always classify those by their thread ID.
-function M.withoutSms(data)
+--- Share unchanged lists and rows; allocate a projection only on removal.
+local function filterRows(data, keep)
   if type(data) ~= "table" or type(data.items) ~= "table" then return data end
-  local items = {}
-  for _, row in ipairs(data.items) do
-    if type(row) == "table" and row.kind ~= "sms" and not (row.kind == nil and M.smsThread(row.id)) then
-      items[#items + 1] = row
+  local items
+  for index, row in ipairs(data.items) do
+    if type(row) == "table" and keep(row) then
+      if items then items[#items + 1] = row end
+    elseif not items then
+      items = {}
+      for previous = 1, index - 1 do items[previous] = data.items[previous] end
     end
   end
-  if #items == #data.items then return data end
+  if not items then return data end
   local result = {}
   for key, value in pairs(data) do result[key] = value end
   result.items = items
   return result
+end
+
+function M.withoutHiddenChats(data, policy, previousInstance)
+  if not policy then return data end
+  return filterRows(data, function(row)
+    return (row.kind ~= "chat" and not M.chatThread(row.id))
+      or M.allowsScope(policy, row.appScope, previousInstance)
+  end)
+end
+
+-- Conversation lists mix two independently permitted sources. History
+-- responses have no row kind; always classify those by their thread ID.
+local function keepNonSms(row)
+  return row.kind ~= "sms" and not (row.kind == nil and M.smsThread(row.id))
+end
+
+function M.withoutSms(data)
+  return filterRows(data, keepNonSms)
 end
 
 return M

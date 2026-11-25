@@ -1,15 +1,5 @@
 -- Regression counters use mocks only: no profile reads, processes or phone actions.
 dofile("tests/test_runtime.lua")
-local function copy(value)
-  if type(value) ~= "table" then
-    return value
-  end
-  local out = {}
-  for k, v in pairs(value) do
-    out[k] = copy(v)
-  end
-  return out
-end
 
 local reads, completions, resets, pending = 0, 0, 0, nil
 local token = string.rep("a", 64)
@@ -58,44 +48,60 @@ api.request("/test", nil, function() end)
 assert(resets == 1 and reads == 3, "credentials must rotate, not persist across requests")
 
 -- Inspect each cached preview once; sanitization must not destroy cache originals.
-local checks, copies, requests = 0, 0, 0
+local checks, requests, reply = 0, 0, nil
 local exists = true
 noctalia.fileExists = function()
   checks = checks + 1
   return exists
 end
-local cache = { entries = {}, jobs = {}, retry = {}, epoch = 0, clock = 0 }
 local visibility = { open = true }
 local snapshot, clock = {}, { ticks = 0 }
 local command = { device = "one", value = { page = "photos", key = "photos", limit = 5 } }
 visibility.activePage = command
-local pages = require("./service/pages.luau").new(cache, visibility, clock, snapshot, {
+local pages = require("./service/pages.luau").new(visibility, clock, snapshot, {
   credentials = function()
     return {}
   end,
-  request = function()
+  request = function(_, _, done)
     requests = requests + 1
+    reply = done
   end,
 }, function() end, function()
   return true
-end, function(v)
-  copies = copies + 1
-  return copy(v)
 end, { updateIntervalMs = 2000, pageCacheLimit = 24, pageRetryTicks = 15 })
-local original = { items = { { thumbnailPath = "/mock/photo" } } }
-cache.entries[pages.identity(command)] = { data = original, at = 0, used = 0 }
+local original = { items = { { id = "one", thumbnailPath = "/mock/photo" }, { id = "two" } }, albums = {} }
 pages.read(command)
-assert(checks == 1 and copies == 0 and requests == 0)
+reply(true, 200, original)
+requests, checks = 0, 0
+pages.read(command)
+assert(checks == 1 and requests == 0 and snapshot.page.data == original)
 exists = false
 checks = 0
 pages.read(command)
-assert(checks == 1 and copies == 1 and requests == 1)
+assert(checks == 1 and requests == 1)
 assert(snapshot.page.data.items[1].thumbnailPath == nil)
 assert(original.items[1].thumbnailPath == "/mock/photo")
+assert(snapshot.page.data.items[1] ~= original.items[1])
+assert(snapshot.page.data.items[2] == original.items[2] and snapshot.page.data.albums == original.albums)
 exists = true
 checks = 0
 pages.read(command)
-assert(checks == 1 and snapshot.page.data.items[1].thumbnailPath == "/mock/photo")
+assert(checks == 1 and snapshot.page.data == original)
+
+local pageData = require("./service/page_data.luau")
+local apps = { items = { { id = "app", iconPath = "/mock/icon" } } }
+local display, valid = pageData.previews(apps, "apps", function(path)
+  assert(path == "/mock/icon")
+  return false
+end)
+assert(not valid and display.items[1].iconPath == nil and apps.items[1].iconPath == "/mock/icon")
+
+local merged, complete = pageData.mergePhotoDetails(original, {
+  items = { { id = "two", thumbnailPath = "/mock/second" } },
+})
+assert(complete and merged.items[2].thumbnailPath == "/mock/second")
+assert(original.items[2].thumbnailPath == nil and merged.items[2] ~= original.items[2])
+assert(merged.items[1] == original.items[1] and merged.albums == original.albums)
 
 -- A hidden panel decodes zero snapshots; opening accepts only the latest epoch.
 local watcher, decodes, renders = nil, 0, 0
@@ -209,5 +215,5 @@ print(
   "PASS: exactly-once HTTP, credential rotation, preview copy/recovery, hidden-panel and widget decode counters"
 )
 print(
-  "COUNTERS: hidden panel 100 updates = 0 decodes; widget 100 identical updates = 1 decode; cached preview = 1 filesystem check, 0 copies"
+  "COUNTERS: hidden panel 100 updates = 0 decodes; widget 100 identical updates = 1 decode; valid preview = 1 filesystem check, 0 copies"
 )

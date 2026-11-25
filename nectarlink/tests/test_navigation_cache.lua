@@ -375,21 +375,9 @@ print("PASS: presentation LRU, oversize rejection and complete invalidation")
 
 -- The service uses the same byte estimator, but owns its own independent LRU.
 local pending
-local cache = { entries = {}, jobs = {}, retry = {}, epoch = 0, clock = 0 }
 local visibility = { open = true }
 local snapshot = {}
-local function copy(v)
-  if type(v) ~= "table" then
-    return v
-  end
-  local out = {}
-  for k, child in pairs(v) do
-    out[k] = copy(child)
-  end
-  return out
-end
 local pages = require("./service/pages.luau").new(
-  cache,
   visibility,
   { ticks = 0 },
   snapshot,
@@ -405,26 +393,25 @@ local pages = require("./service/pages.luau").new(
   function()
     return true
   end,
-  copy,
   { pageCacheLimit = 24, pageCacheBytes = 10000, updateIntervalMs = 2000, pageRetryTicks = 15 }
 )
+local requestedPages = {}
 for i = 1, 3 do
   local cmd =
     { device = "one", value = { key = "service" .. i, page = "apps", search = tostring(i) } }
+  requestedPages[i] = cmd
   visibility.activePage = cmd
   pages.read(cmd)
   pending(true, 200, { items = { { id = "item", title = string.rep("x", 4000) } } })
 end
-local count = 0
-for _ in pairs(cache.entries) do
-  count = count + 1
-end
-assert(count == 2 and snapshot.page.data.items[1].title == string.rep("x", 4000))
+assert(not pages.hasCachedPage(requestedPages[1]))
+assert(pages.hasCachedPage(requestedPages[2]) and pages.hasCachedPage(requestedPages[3]))
+assert(snapshot.page.data.items[1].title == string.rep("x", 4000))
 local cmd = { device = "one", value = { key = "oversize", page = "apps", search = "oversize" } }
 visibility.activePage = cmd
 pages.read(cmd)
 pending(true, 200, { items = { { id = "item", title = string.rep("x", 11000) } } })
-assert(not cache.entries[pages.identity(cmd)] and snapshot.page.status == "ready")
+assert(not pages.hasCachedPage(cmd) and snapshot.page.status == "ready")
 print(
   "PASS: service byte-budget eviction; oversized successful responses remain displayable without caching"
 )

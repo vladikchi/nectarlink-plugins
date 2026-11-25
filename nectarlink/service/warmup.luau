@@ -46,7 +46,7 @@ function M.new(pages, snapshot, visibility, online, geometry)
         -- A visit can already have filled this slot. An expired or evicted
         -- entry (or a failed attempt) is not a reason to start another queue.
         state[kind] = true
-        if not pages.cachedAt(cmd) then
+        if not pages.hasCachedPage(cmd) then
           pages.read(cmd, true, false, "warm")
           return
         end
