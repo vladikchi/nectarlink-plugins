@@ -91,6 +91,7 @@ local before = #commands
 for _, reason in ipairs({
   "credentials_missing",
   "credentials_invalid",
+  "loopback_proxy",
   "api_unavailable",
   "unauthorized",
   "auth_changed",

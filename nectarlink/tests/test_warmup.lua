@@ -106,20 +106,37 @@ assert(#pages == 3 and pages[3].photo_rows_only)
 finish({ items = { { id = "photo", thumbnailPath = "/cached/photo" } }, albums = {} })
 advance(2000)
 assert(#pages == 4 and pages[4].page == "apps" and pages[4].limit > 0)
-finish({ items = { { id = "app" } } })
-devices[2].online = false
+-- A failed warmup is not retried while the panel is closed.
+table.remove(jobs, 1)({ ok = false, status = 409, body = { ok = false, error = "timeout" } })
+devices[1].online, devices[2].online = false, false
 command("refresh")
 advance(2000)
-devices[2].online = true
+devices[1].online, devices[2].online = true, true
 command("refresh")
 advance(0)
 advance(10000)
 assert(#pages == 4, "a short reconnect must not start the queue again")
+assert(
+  reads["/v1/timeline"] == 1 and reads["/v1/notifications"] == 1 and reads["/v1/sessions"] == 1,
+  "Home is not warmed twice after an offline/online transition"
+)
 for _ = 1, 20 do advance(2000) end
 assert(#pages == 4, "no frequently recurring hidden page requests")
-advance(150000)
-assert(#pages == 5 and pages[5].page == "messages", "refresh a recently visited section")
-finish({ items = { { id = "new-sms" } } })
+for _ = 1, 15 do advance(120000) end
 advance(1900000)
-assert(#pages == 5, "never-visited photos and apps are not kept polling")
+assert(#pages == 4, "neither a visited section nor a failed warmup starts hidden polling")
+
+-- A permission transition is observable in the normal devices read. Do not
+-- probe a known denial in the background; grant queues one read only.
+devices[2].appWindowsAllowed = false
+command("refresh")
+advance(2000)
+assert(#pages == 4)
+devices[2].appWindowsAllowed = true
+command("refresh")
+advance(2000)
+assert(#pages == 5 and pages[5].page == "apps" and pages[5].device == "two")
+finish({ items = { { id = "available-app" } } })
+for _ = 1, 30 do advance(2000) end
+assert(#pages == 5, "unchanged permission doesn't rearm the queue again")
 print("PASS: bounded Home and page warmup, live reads join in-flight work, reconnect preserves cache, no actions")

@@ -7,7 +7,9 @@ local snapshot = { state = "unconfigured", devices = {} }
 local clock = { ticks = 0 }
 local visibility = { open = false, section = "home", activePage = nil, warmedHome = nil }
 local cache = { entries = {}, jobs = {}, retry = {}, epoch = 0, clock = 0 }
+local access = require("./message_access.luau")
 local knownDevices = {}
+local knownAppAccess = {}
 local legacyEmpty = false
 -- Device reads and individual action channels have independent counters.
 local requests = {
@@ -107,6 +109,7 @@ local api = require("./service/api.luau").new(function(reason)
   visibility.threads = nil
   visibility.warmedHome = nil
   knownDevices = {}
+  knownAppAccess = {}
   legacyEmpty = false
   -- Clear the old projection in place; modules retain the same snapshot table.
   for key in pairs(snapshot) do
@@ -210,11 +213,13 @@ local function pollNotifications(warm)
           type(item) == "table"
           and type(item.deviceId) == "string"
           and type(item.key) == "string"
+          and access.allowsScope(snapshot.notificationPolicy, item.appScope)
         then
           table.insert(snapshot.notifications, {
             deviceId = item.deviceId,
             key = item.key,
             appName = item.appName,
+            appScope = item.appScope,
             title = item.title,
             text = item.text,
             timestamp = type(item.timestamp) == "number" and item.timestamp or nil,
@@ -271,6 +276,7 @@ local function acceptDeviceList(devices)
   for id in pairs(knownDevices) do
     if not known[id] then
       invalidateKind(id)
+      knownAppAccess[id] = nil
       warmup.forget(id)
       if visibility.activePage and visibility.activePage.device == id then
         visibility.activePage, visibility.threads = nil, nil
@@ -288,7 +294,66 @@ local function acceptDeviceList(devices)
   end
   knownDevices = known
   snapshot.state, snapshot.error, snapshot.devices = "ready", nil, devices
-  for _, device in ipairs(devices) do pages.setSmsAccess(device.id, device.smsAllowed) end
+  for _, device in ipairs(devices) do
+    pages.setSmsAccess(device.id, device.smsAllowed)
+    local current, previous = device.appWindowsAllowed, knownAppAccess[device.id]
+    if type(current) == "boolean" then
+      knownAppAccess[device.id] = current
+      if current and (previous ~= true or
+        (snapshot.deniedPages and snapshot.deniedPages["apps:" .. device.id]))
+      then
+        pages.allowApps(device.id)
+        warmup.rearm("apps", device.id)
+      elseif not current and previous ~= false
+        and not (snapshot.deniedPages and snapshot.deniedPages["apps:" .. device.id])
+      then
+        pages.deny(device.id, "apps", "permission")
+      end
+    end
+  end
+end
+
+local function cancelNotifications()
+  requests.notifications.generation = requests.notifications.generation + 1
+  requests.notifications.pending = false
+end
+
+local function acceptPrivateAccess(data)
+  local previousPrivate, previousEpoch = snapshot.privateMessages, snapshot.privateReadEpoch
+  snapshot.privateMessages = data.privateMessages
+  snapshot.privateReadEpoch = type(data.privateReadEpoch) == "string" and data.privateReadEpoch or nil
+  if data.privateMessages == false then
+    if previousPrivate ~= false then
+      cancelNotifications()
+      snapshot.notifications, snapshot.notificationsState = {}, "offline"
+    end
+    snapshot.notificationPolicy = nil
+    if not snapshot.messagesDenied then pages.deny(nil, "messages", "private_api_disabled") end
+    return
+  end
+  if previousPrivate == false and data.privateMessages == true then
+    pages.allowPrivate()
+    warmup.rearm("messages")
+  elseif previousEpoch and snapshot.privateReadEpoch and previousEpoch ~= snapshot.privateReadEpoch then
+    -- Off and on between polls is still a confirmed revocation.
+    cancelNotifications()
+    snapshot.notifications, snapshot.notificationsState = {}, nil
+    pages.revokePrivate()
+    pages.allowPrivate()
+    warmup.rearm("messages")
+  end
+  local policy = access.policy(data.notificationPolicy)
+  local previous = snapshot.notificationPolicy
+  if not access.policyChanged(previous, policy) then return end
+  local previousInstance = previous and previous.instance ~= policy.instance
+  snapshot.notificationPolicy = policy
+  cancelNotifications()
+  local kept = {}
+  for _, notice in ipairs(snapshot.notifications or {}) do
+    if access.allowsScope(policy, notice.appScope, previousInstance) then kept[#kept + 1] = notice end
+  end
+  snapshot.notifications = kept
+  pages.setNotificationPolicy(policy, previousInstance)
 end
 
 local function poll()
@@ -331,6 +396,7 @@ local function poll()
           type(index) ~= "number" or index % 1 ~= 0 or index < 1 or index > #data.devices
           or type(device) ~= "table"
           or type(device.id) ~= "string"
+          or (device.appWindowsAllowed ~= nil and type(device.appWindowsAllowed) ~= "boolean")
           or (device.battery ~= nil and type(device.battery) ~= "table")
         then
           valid = false
@@ -344,19 +410,7 @@ local function poll()
       legacyEmpty = data.devicesReady == nil and #data.devices == 0
       snapshot.localMessageThreads = data.localMessageThreads == true
       snapshot.pageCacheV2 = data.pageCacheV2 == true
-      local previousPrivate = snapshot.privateMessages
-      snapshot.privateMessages = data.privateMessages
-      if data.privateMessages == false and previousPrivate ~= false then
-        requests.notifications.generation = requests.notifications.generation + 1
-        requests.notifications.pending = false
-        snapshot.notifications, snapshot.notificationsState = {}, "offline"
-      end
-      if data.privateMessages == false and not snapshot.messagesDenied then
-        pages.deny(nil, "messages", "private_api_disabled")
-      elseif previousPrivate == false and data.privateMessages == true then
-        snapshot.messagesDenied = nil
-        warmup.rearm("messages")
-      end
+      acceptPrivateAccess(data)
       if waitForDevices then
         snapshot.state, snapshot.error, snapshot.devices = "offline", nil, {}
       else
@@ -466,7 +520,6 @@ noctalia.state.watch("nl.command", function(raw)
       snapshot.threads = nil
     end
     pages.cancelInactiveRefreshes()
-    warmup.visit(cmd)
     if visibility.threads then readPage(visibility.threads, false, v.force == true, "threads") end
     readPage(cmd, false)
   elseif cmd.action == "page_leave" then
@@ -478,8 +531,9 @@ noctalia.state.watch("nl.command", function(raw)
     publish()
   elseif cmd.action == "page_action" and type(cmd.value) == "table" then
     handlePageAction(cmd)
-  elseif cmd.action == "visible" then
-    visibility.open = cmd.value == true or (type(cmd.value) == "table" and cmd.value.open == true)
+  elseif cmd.action == "visible" or cmd.action == "files_after_close" then
+    local fileHandoff = cmd.action == "files_after_close"
+    visibility.open = not fileHandoff and (cmd.value == true or (type(cmd.value) == "table" and cmd.value.open == true))
     if type(cmd.device) == "string" then visibility.device = cmd.device end
     if visibility.open then
       visibility.section = type(cmd.value) == "table" and cmd.value.page or "home"
@@ -502,6 +556,8 @@ noctalia.state.watch("nl.command", function(raw)
       pollTimeline()
       pollNotifications()
       pollSessions()
+    elseif fileHandoff and canTransfer() and snapshot.devices[1].id == cmd.device then
+      launch("send-files")
     end
   elseif cmd.action == "refresh" then
     poll()
@@ -524,8 +580,6 @@ noctalia.state.watch("nl.command", function(raw)
     end
   elseif cmd.action == "timeline" then
     launch("open-timeline")
-  elseif cmd.action == "files" and canTransfer() then
-    launch("send-files")
   elseif cmd.action == "clipboard" and canTransfer() then
     launch("send-clipboard")
   elseif cmd.action == "session" and type(cmd.value) == "table" then
@@ -548,27 +602,22 @@ function update()
   -- Schedule reads and expire waits; an expired action may have reached the phone.
   noctalia.setUpdateInterval(limits.updateIntervalMs)
   clock.ticks = clock.ticks + 1
-  -- One small read-only warmup per connection. Never prefetch every tab or
-  -- continuously poll hidden Home; the visible page always has priority.
-  local ids = {}
-  if snapshot.state == "ready" then
+  -- One small read-only Home warmup for this API binding. Going offline
+  -- briefly does not put Home (or any of the other tabs) back in the queue.
+  if snapshot.state == "ready" and visibility.warmedHome ~= cache.epoch then
     for _, d in ipairs(snapshot.devices) do
       if d.online then
-        table.insert(ids, d.id)
+        if not visibility.open then
+          visibility.warmedHome = cache.epoch
+          pollTimeline(true)
+          pollNotifications(true)
+          pollSessions(true)
+        elseif homeActive() then
+          visibility.warmedHome = cache.epoch
+        end
+        break
       end
     end
-  end
-  table.sort(ids)
-  local binding = #ids > 0 and table.concat(ids, ":") .. ":" .. tostring(cache.epoch) or nil
-  if not binding then
-    visibility.warmedHome = nil
-  elseif not visibility.open and visibility.warmedHome ~= binding then
-    visibility.warmedHome = binding
-    pollTimeline(true)
-    pollNotifications(true)
-    pollSessions(true)
-  elseif homeActive() then
-    visibility.warmedHome = binding
   end
   local expired = {}
   for key, job in pairs(cache.jobs) do
@@ -684,7 +733,6 @@ function update()
   end
   if visibility.open and visibility.activePage and onlineDevice(visibility.activePage.device) then
     local current = visibility.activePage
-    warmup.visit(current)
     if visibility.activePage.value.page == "calls" and clock.ticks % 3 == 0 then
       readPage(current, true, true)
     elseif clock.ticks % 5 == 0 and (not pages.isIndex(current) or (current.value.offset or 0) == 0) then

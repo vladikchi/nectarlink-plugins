@@ -13,10 +13,12 @@ local eventIcons = {
   mirror = "devices-pc",
 }
 
-local function timeLabel(timestamp, label)
-  -- Both endpoints report milliseconds; older versions may omit the field.
-  if noctalia.formatTime and type(timestamp) == "number" and timestamp > 0 and timestamp < 253402300800000 then
-    return label(noctalia.formatTime("%H:%M", math.floor(timestamp / 1000)), 10, "on_surface_variant", false, 43)
+local function timeLabel(timestamp, label, milliseconds)
+  if noctalia.formatTime and type(timestamp) == "number" then
+    local seconds = milliseconds and timestamp / 1000 or timestamp
+    if seconds > 0 and seconds < 253402300800 then
+      return label(noctalia.formatTime("%H:%M", math.floor(seconds)), 10, "on_surface_variant", false, 43)
+    end
   end
 end
 
@@ -60,7 +62,7 @@ local function notificationRow(item, width, components)
     components.label(app, 10, "primary", false, titleWidth - 52),
     ui.spacer({ flexGrow = 1 }),
   }
-  local time = timeLabel(item.timestamp, components.label)
+  local time = timeLabel(item.timestamp, components.label, true)
   if time then
     source[#source + 1] = time
   end

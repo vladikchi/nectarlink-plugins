@@ -70,6 +70,10 @@ function M.new()
       noctalia.tr("errors.credentials_invalid.title"),
       noctalia.tr("errors.credentials_invalid.body"),
     },
+    loopback_proxy = {
+      noctalia.tr("errors.loopback_proxy.title"),
+      noctalia.tr("errors.loopback_proxy.body"),
+    },
     api_unavailable = {
       noctalia.tr("errors.api_unavailable.title"),
       noctalia.tr("errors.api_unavailable.body"),
@@ -97,6 +101,10 @@ function M.new()
     sms_unavailable = {
       noctalia.tr("messages.sms_not_loaded"),
       noctalia.tr("errors.sms_unavailable.body"),
+    },
+    local_chats_unavailable = {
+      noctalia.tr("messages.local_chats_not_loaded"),
+      noctalia.tr("errors.local_chats_unavailable.body"),
     },
     photo_details_unavailable = {
       noctalia.tr("errors.photo_details_unavailable.title"),

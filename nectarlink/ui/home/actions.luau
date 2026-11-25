@@ -22,9 +22,9 @@ local function tile(spec, width, compact, model, components, actions)
     opacity = spec.enabled and 1 or 0.55,
     tooltip = spec.tooltip or spec.title,
     onHover = spec.enabled and "onTileHover" or nil,
-    onClick = spec.enabled and function()
+    onClick = spec.enabled and (spec.onClick or function()
       actions.send(spec.command, spec.device, spec.value)
-    end or nil,
+    end) or nil,
   }
   local icon = ui.glyph({ name = spec.icon, size = compact and 23 or 25, color = accent and "primary" or "on_surface" })
   local textWidth = width - 2 * padding - (compact and 33 or 0)
@@ -128,6 +128,7 @@ end
 function M.render(context, width, model, components, actions)
   local phone, online, snapshot = context.phone, context.online, model.snapshot
   local id = model.selected
+  local scope = model.actionScope
   local screen = components.activeSession(context.session, "screen")
   local webcam = components.activeSession(context.session, "webcam")
   local ringing = phone and phone.ringing == true
@@ -149,7 +150,7 @@ function M.render(context, width, model, components, actions)
       active = screen, primary = true,
     },
     {
-      key = "files", icon = "folder", command = "files",
+      key = "files", icon = "folder", onClick = function() actions.openFiles(id, scope) end,
       title = noctalia.tr("home.files"), caption = noctalia.tr("home.files_caption"),
       tooltip = transfer and noctalia.tr("home.files_hint") or transferReason, enabled = transfer,
     },

@@ -6,6 +6,7 @@ local installCommand =
 local setupReasons = {
   credentials_missing = true,
   credentials_invalid = true,
+  loopback_proxy = true,
   api_unavailable = true,
   unauthorized = true,
   auth_changed = true,

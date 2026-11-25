@@ -1,7 +1,7 @@
 -- Actual service in system Lua; mock transport/processes, never real credentials.
 dofile("tests/test_runtime.lua")
 local watchers, requests, config, latest, launches = {}, {}, {}, nil, 0
-local notices = {}
+local notices, lastLaunch = {}, nil
 local function copy(t)
   if type(t) ~= "table" then
     return t
@@ -39,8 +39,9 @@ noctalia = {
     table.insert(requests, { req = req, cb = cb })
     return true
   end,
-  runAsync = function()
+  runAsync = function(argv)
     launches = launches + 1
+    lastLaunch = argv
     return true
   end,
   notifyError = function(_, message)
@@ -278,7 +279,7 @@ respond(
   "/v1/devices",
   { devices = { { id = "one", online = true }, { id = "two", online = true } } }
 )
-command("files")
+command("files_after_close", "one", false)
 command("clipboard")
 assert(launches == 0)
 config.executable = "/fake/app"
@@ -355,6 +356,57 @@ command("page", "one", { page = "messages", key = "coalesced-open" })
 respond("/v1/page", { ok = true, items = {} })
 assert(latest.page.key == "coalesced-open" and latest.page.status == "ready")
 command("visible", nil, false)
+
+-- Fresh fixture for coordinated revocation and the file handoff.
+requests = {}
+config.panel_notifications, config.panel_timeline = true, false
+dofile("service.luau")
+local instance, hidden, kept = string.rep("a", 64), string.rep("b", 64), string.rep("c", 64)
+local phone = { id = "one", online = true }
+local function deviceResponse(revision, blocked, privateEpoch)
+  respond("/v1/devices", {
+    devices = { phone }, devicesReady = true, privateMessages = true,
+    privateReadEpoch = privateEpoch or "1", pageCacheV2 = true,
+    notificationPolicy = { instance = instance, revision = revision, hidden = blocked },
+  })
+end
+command("refresh")
+deviceResponse("1", {})
+command("visible", "one", true)
+local noticeRows = {
+  { deviceId = "one", key = "fixture-hidden", appScope = hidden },
+  { deviceId = "one", key = "fixture-kept", appScope = kept },
+}
+respond("/v1/notifications", { notifications = noticeRows })
+respond("/v1/sessions", { devices = {} })
+command("page", "one", { page = "messages", key = "full-list" })
+local threads = { items = {
+  { id = "chat:first", kind = "chat", appScope = hidden },
+  { id = "test-sms", kind = "sms" },
+  { id = "chat:second", kind = "chat", appScope = kept },
+} }
+respond("/v1/page", threads)
+command("page", "one", { page = "messages", key = "reading-chat", thread = "chat:first",
+  threads = { page = "messages", key = "full-list" } })
+assert(latest.threads.data.items[1].id == "chat:first")
+deviceResponse("2", { hidden }) -- The request began under the previous rules.
+assert(#latest.notifications == 1 and latest.notifications[1].key == "fixture-kept")
+assert(#latest.threads.data.items == 2 and latest.threads.data.items[2].id == "chat:second")
+respond("/v1/page", { appScope = hidden, items = { { id = "old-detail" } } })
+assert(not latest.page and latest.threads.data.items[1].id == "test-sms")
+
+command("page", "one", { page = "messages", key = "reloaded-list" })
+assert(#latest.page.data.items == 2) -- render immediately while the list is refreshed
+respond("/v1/page", { items = { threads.items[2], threads.items[3] } })
+command("refresh")
+deviceResponse("2", { hidden }, "3") -- Disable/enable between polls.
+assert(not latest.page and #latest.notifications == 0 and latest.pageRevocations.messages == 1)
+
+local beforeHandoff = launches
+command("files_after_close", "other", false)
+assert(launches == beforeHandoff)
+command("files_after_close", "one", false)
+assert(launches == beforeHandoff + 1 and lastLaunch[3] == "send-files")
 print(
   "PASS: service privacy/preferences, sessions, wire flags, action receipts, stale replies and no automatic retry"
 )

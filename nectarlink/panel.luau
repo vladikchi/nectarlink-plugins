@@ -40,6 +40,7 @@ local model = {
   guideTopic = 1,
   lastCacheEpoch = nil,
   appsSignature = nil,
+  fileHandoff = nil,
 }
 local render
 
@@ -169,6 +170,8 @@ end
 
 local function selectThread(thread, threadList)
   if not model.opened or model.page ~= "messages" then return end
+  if thread and access.chatThread(thread.id)
+    and not access.allowsScope(model.snapshot.notificationPolicy, thread.appScope) then return end
   if thread and (thread.kind == "sms" or access.smsThread(thread.id))
     and model.snapshot.smsDenied and model.snapshot.smsDenied[model.selected]
   then return end
@@ -225,6 +228,15 @@ local function onlinePhone(device)
   end
 end
 
+local function openFiles(device, scope)
+  if not model.opened or model.page ~= "home" or model.selected ~= device or model.actionScope ~= scope
+    or model.fileHandoff
+    or #model.snapshot.devices ~= 1 or not onlinePhone(device)
+  then return end
+  model.fileHandoff = device
+  panel.close()
+end
+
 local function dispatch(channel, device, payload)
   local requestId = ""
   for _ = 1, 8 do
@@ -268,6 +280,7 @@ end
 -- Explicit dependencies only; modules cannot read controller globals.
 local actions = {
   send = send,
+  openFiles = openFiles,
   render = function()
     render()
   end,
@@ -432,10 +445,41 @@ local function acceptSnapshot(raw)
     return view
   end
   value.page, value.threads = scrubSnapshotView(value.page), scrubSnapshotView(value.threads)
+  local policy = value.notificationPolicy
+  if access.policyChanged(before.notificationPolicy, policy) then
+    local previousInstance = before.notificationPolicy and before.notificationPolicy.instance ~= policy.instance
+    local function scrubNotificationView(view)
+      if not view or view.kind ~= "messages" or not view.data then return view end
+      if access.chatThread(view.thread) and not access.allowsScope(policy, view.data.appScope, previousInstance) then
+        return nil
+      end
+      if view.thread == "" then view.data = access.withoutHiddenChats(view.data, policy, previousInstance) end
+      return view
+    end
+    value.page, value.threads = scrubNotificationView(value.page), scrubNotificationView(value.threads)
+    memory.revokeChats(policy, previousInstance)
+    if model.page == "messages" then
+      local thread = model.thread
+      if thread and access.chatThread(thread.id)
+        and not access.allowsScope(policy, thread.appScope, previousInstance)
+      then
+        -- Keep the left pane and its cursor, but close the revoked detail.
+        model.actionScope = model.actionScope + 1
+        model.thread, model.detail, model.detailPart = nil, nil, 0
+        model.offset, model.before, model.beforeId, model.cursors = 0, nil, nil, {}
+        model.pageKey, model.pageView = nil, nil
+      end
+      model.pageRequested = false
+    end
+  end
   if removed(model.selected) or revoked(model.page, model.selected)
     or (sectionDenied(value, model.page, model.selected) and not sectionDenied(before, model.page, model.selected))
   then
     resetPage()
+  elseif sectionDenied(before, model.page, model.selected)
+    and not sectionDenied(value, model.page, model.selected)
+  then
+    model.pageRequested = false
   elseif model.page == "messages" and model.selected and revoked("sms", model.selected) then
     if model.thread and (model.thread.kind == "sms" or access.smsThread(model.thread.id)) then
       resetPage()
@@ -539,7 +583,14 @@ function onClose()
   model.pageKey = nil
   model.detail = nil
   model.hotspotMenu = nil
-  send("visible", model.selected, false)
+  local device = model.fileHandoff
+  model.fileHandoff = nil
+  if device then
+    -- One state message carries both the close and its explicit file intent.
+    send("files_after_close", device, false)
+  else
+    send("visible", model.selected, false)
+  end
 end
 
 function onConfigChanged()

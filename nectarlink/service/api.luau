@@ -2,6 +2,27 @@
 -- Auth and HTTP. Credentials stay in this module and request headers;
 -- never publish them to UI state or pass them on a command line.
 local M = {}
+
+local function loopbackIsDirect()
+  if not noctalia.getenv then return true end
+  local function present(name)
+    local value = noctalia.getenv(name)
+    return type(value) == "string" and value ~= "" and value or nil
+  end
+  -- Noctalia's libcurl HTTP binding uses the process proxy environment.
+  -- It doesn't yet offer a request-local bypass. Never send the bearer
+  -- token through an HTTP proxy; require a known matching NO_PROXY entry.
+  if not (present("http_proxy") or present("all_proxy") or present("ALL_PROXY")) then return true end
+  local bypass = present("no_proxy") or present("NO_PROXY") or ""
+  if bypass == "*" then return true end
+  for entry in bypass:gmatch("[^,]+") do
+    local host = entry:match("^[ \t]*([^ \t]*)[ \t]*$")
+    if not host then break end -- libcurl stops at whitespace not followed by a comma.
+    if host == "127.0.0.1" or host == "127.0.0.0/8" then return true end
+  end
+  return false
+end
+
 function M.new(onCredentialsChanged)
   local credentialBinding = nil
   local authEpoch = 0
@@ -27,6 +48,10 @@ function M.new(onCredentialsChanged)
   end
 
   local function credentials()
+    if not loopbackIsDirect() then
+      bindCredentials(nil, "loopback_proxy")
+      return nil, "loopback_proxy"
+    end
     -- Do not publish OS errors: they may contain local paths.
     -- nil does not prove the app is absent: its file may be inaccessible.
     local readable, raw = pcall(noctalia.readFile, "~/.local/share/Nectarlink/api-token.json")
@@ -60,7 +85,11 @@ function M.new(onCredentialsChanged)
     local initialEpoch = authEpoch
     local hadCredentials = credentialBinding ~= nil
     local cfg, credentialError = validatedCredentials, nil
-    if not cfg then
+    if cfg and not loopbackIsDirect() then
+      bindCredentials(nil, "loopback_proxy")
+      callback(false, 0, nil, "loopback_proxy")
+      return
+    elseif not cfg then
       cfg, credentialError = credentials()
     end
     if not cfg then
@@ -103,6 +132,7 @@ function M.new(onCredentialsChanged)
       method = body and "POST" or "GET",
       headers = { "Authorization: Bearer " .. cfg.token, "Content-Type: application/json" },
       body = encoded,
+      follow_redirects = false,
     }, function(res)
       if completed or requestEpoch ~= authEpoch then
         completed = true

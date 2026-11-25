@@ -53,8 +53,10 @@ end
 local function validData(data)
   if
     type(data) ~= "table"
-    or not optionalFields(data, { "notice" }, "string")
-    or not optionalFields(data, { "more", "reply", "dial", "control" }, "boolean")
+    or not optionalFields(data, { "notice", "appScope" }, "string")
+    or not optionalFields(data, {
+      "more", "reply", "dial", "control", "smsIncomplete", "localChatsIncomplete",
+    }, "boolean")
   then
     return false
   end
@@ -64,7 +66,7 @@ local function validData(data)
         and type(item.id) == "string"
         and optionalFields(
           item,
-          { "title", "subtitle", "kind", "number", "thumbnailPath", "iconPath" },
+          { "title", "subtitle", "kind", "number", "thumbnailPath", "iconPath", "appScope" },
           "string"
         )
         and optionalFields(item, { "date", "size", "duration" }, "number")
@@ -104,6 +106,7 @@ local function validData(data)
   end
   return true
 end
+
 function M.new(cache, visibility, clock, snapshot, api, publish, onlineDevice, copy, limits)
   -- cache owns original responses; snapshot.page is the displayed projection.
   -- clock.ticks measures scheduler intervals, nowMs measures entry age.
@@ -294,6 +297,63 @@ function M.new(cache, visibility, clock, snapshot, api, publish, onlineDevice, c
     end
   end
 
+  local function revokePrivate()
+    invalidateKind(nil, "messages")
+    snapshot.pageRevocations = snapshot.pageRevocations or {}
+    snapshot.pageRevocations.messages = (snapshot.pageRevocations.messages or 0) + 1
+    snapshot.messagesDenied = nil
+  end
+
+  local function allowPrivate()
+    snapshot.messagesDenied = nil
+    for key, reason in pairs(cache.errors) do
+      if reason == "private_api_disabled" then cache.retry[key], cache.errors[key] = nil, nil end
+    end
+  end
+
+  local function setNotificationPolicy(policy, previousInstance)
+    local function readsChats(entry)
+      return entry.kind == "messages" and not access.smsThread(entry.thread)
+    end
+    for key, job in pairs(cache.jobs) do
+      if readsChats(job) then cache.jobs[key], cache.retry[key], cache.errors[key] = nil, nil, nil end
+    end
+    for key, reason in pairs(cache.errors) do
+      if reason == "chat_unavailable" then cache.retry[key], cache.errors[key] = nil, nil end
+    end
+    local function scrub(entry)
+      if not readsChats(entry) then return true end
+      if access.chatThread(entry.thread) then
+        return entry.data and access.allowsScope(policy, entry.data.appScope, previousInstance)
+      end
+      local data = access.withoutHiddenChats(entry.data, policy, previousInstance)
+      if data ~= entry.data then entry.data, entry.weight = data, nil end
+      return true
+    end
+    for key, entry in pairs(cache.entries) do
+      if not scrub(entry) then cache.entries[key] = nil
+      elseif entry.kind == "messages" and entry.thread == "" then
+        entry.policyStale = true -- A now-visible chat may need to be added back.
+        cache.retry[key], cache.errors[key] = nil, nil
+      end
+    end
+    for _, surface in ipairs({ "page", "threads" }) do
+      local view = snapshot[surface]
+      if view and readsChats(view) then
+        if not scrub(view) then snapshot[surface] = nil
+        else view.refreshing = false end
+      end
+    end
+  end
+
+  local function allowApps(device)
+    if snapshot.deniedPages then snapshot.deniedPages["apps:" .. device] = nil end
+    local prefix = tostring(#device) .. ":" .. device .. "4:apps"
+    for key in pairs(cache.retry) do
+      if key:sub(1, #prefix) == prefix then cache.retry[key], cache.errors[key] = nil, nil end
+    end
+  end
+
   local function setSmsAccess(device, allowed)
     if allowed == true then
       if snapshot.smsDenied then snapshot.smsDenied[device] = nil end
@@ -407,6 +467,7 @@ function M.new(cache, visibility, clock, snapshot, api, publish, onlineDevice, c
     local fresh = entry
       and not entry.partial
       and not entry.failed
+      and not entry.policyStale
       and age >= 0
       and age < (PAGE_TTL_TICKS[query.page] or 10) * limits.updateIntervalMs
       and valid
@@ -434,7 +495,8 @@ function M.new(cache, visibility, clock, snapshot, api, publish, onlineDevice, c
     end
     -- Every offset reads the same index. Paging never waits for a phone
     -- refresh: that is done explicitly or by the scheduler.
-    if not force and not retryDetails and (fresh or (index and entry and not entry.partial and not quiet)) then
+    if not force and not retryDetails
+      and (fresh or (index and entry and not entry.partial and not entry.policyStale and not quiet)) then
       return
     end
     if cache.jobs[key] then
@@ -592,6 +654,7 @@ function M.new(cache, visibility, clock, snapshot, api, publish, onlineDevice, c
         if not validJob() or rejected(status, data) then return end
         if ok and validData(data) and #data.items > 0 then
           if smsDenied() then data = access.withoutSms(data) end
+          data = access.withoutHiddenChats(data, snapshot.notificationPolicy)
           job.preview = { data = data, partial = true }
           emit(job.preview, true, true)
         end
@@ -628,13 +691,22 @@ function M.new(cache, visibility, clock, snapshot, api, publish, onlineDevice, c
         followRefresh(key, job)
         return
       end
-      if smsDenied() and thread == "" then data = access.withoutSms(data) end
-      if query.page == "messages" and data.smsIncomplete == true then
+      if query.page == "messages" and thread == "" then
+        if smsDenied() then data = access.withoutSms(data) end
+        data = access.withoutHiddenChats(data, snapshot.notificationPolicy)
+      elseif query.page == "messages" and access.chatThread(thread)
+        and not access.allowsScope(snapshot.notificationPolicy, data.appScope)
+      then
+        rejected(404, { error = "chat_unavailable" })
+        return
+      end
+      if query.page == "messages" and (data.smsIncomplete or data.localChatsIncomplete) then
         local previous = cache.entries[key]
         if (not previous or previous.partial) and (index or (query.offset or 0) == 0) and #data.items > 0 then
           job.preview = { data = data, partial = true }
         end
-        emit(fail("sms_unavailable"), false, true, "failed", "sms_unavailable")
+        local incomplete = data.localChatsIncomplete and "local_chats_unavailable" or "sms_unavailable"
+        emit(fail(incomplete), false, true, "failed", incomplete)
         followRefresh(key, job)
         return
       end
@@ -665,6 +737,10 @@ function M.new(cache, visibility, clock, snapshot, api, publish, onlineDevice, c
     show = showPage,
     eachCurrent = forCurrent,
     deny = deny,
+    revokePrivate = revokePrivate,
+    allowPrivate = allowPrivate,
+    setNotificationPolicy = setNotificationPolicy,
+    allowApps = allowApps,
     cancelInactiveRefreshes = function()
       for key, job in pairs(cache.jobs) do
         if job.refreshRequested then

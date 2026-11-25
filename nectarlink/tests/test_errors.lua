@@ -90,6 +90,35 @@ do
   api.request("/v1/page", { page = "photos", photo_ids = {} }, function() end)
   noctalia.json.encode, noctalia.http = encode, http
 end
+do
+  local env = { http_proxy = "http://proxy.example.test:8080" }
+  local http = noctalia.http
+  noctalia.getenv = function(name) return env[name] end
+  local calls, fileReads = 0, reads
+  noctalia.http = function(req)
+    assert(req.follow_redirects == false)
+    calls = calls + 1
+    return true
+  end
+  request()
+  assert(calls == 0 and reads == fileReads and last.error == "loopback_proxy")
+  env.NO_PROXY = "localhost,example.test"
+  request()
+  assert(calls == 0 and last.error == "loopback_proxy")
+  env.NO_PROXY = "example.test localhost,127.0.0.1"
+  request()
+  assert(calls == 0 and last.error == "loopback_proxy")
+  env.NO_PROXY = "example.test, 127.0.0.1"
+  local config = assert(api.credentials())
+  request()
+  assert(calls == 1)
+  env.no_proxy = "localhost" -- The effective lower-case variable takes precedence.
+  api.request("/test", nil, function(_, _, _, error)
+    assert(error == "loopback_proxy")
+  end, config)
+  assert(calls == 1)
+  noctalia.getenv, noctalia.http = nil, http
+end
 print("PASS: credential/read exceptions, HTTP reasons, malformed JSON/callback and recovery")
 
 -- Actual service: repeated read failures never generate notification/process spam.

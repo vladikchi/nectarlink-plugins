@@ -80,7 +80,8 @@ function M.new(model, components, actions, forms, items)
     end
     local listStatus
     if view and view.partial then
-      listStatus = noctalia.tr(view.refreshing and "messages.loading_sms" or "messages.sms_not_loaded")
+      listStatus = noctalia.tr(view.refreshing and "messages.loading_sms"
+        or (view.error == "local_chats_unavailable" and "messages.local_chats_not_loaded" or "messages.sms_not_loaded"))
     elseif view and view.refreshing then
       listStatus = noctalia.tr("cache.refreshing")
     elseif view and view.error and data then

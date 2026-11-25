@@ -181,9 +181,34 @@ function M.new(model)
         and (v.thread.kind == "sms" or access.smsThread(v.thread.id))
     end)
   end
+  local function revokeChats(policy, previousInstance)
+    views.discard(function(v)
+      return v.kind == "messages" and access.chatThread(v.thread)
+        and not access.allowsScope(policy, v.data.appScope, previousInstance)
+    end)
+    views.scrub(function(v)
+      if v.kind == "messages" and v.thread == "" then
+        local data = access.withoutHiddenChats(v.data, policy, previousInstance)
+        if data ~= v.data then
+          return { key = v.key, status = v.status, data = data, device = v.device, kind = v.kind, thread = "" }
+        end
+      end
+    end)
+    navigation.scrub(function(v)
+      if v.kind == "messages" and v.thread and access.chatThread(v.thread.id)
+        and not access.allowsScope(policy, v.thread.appScope, previousInstance)
+      then
+        local next = {}
+        for field, value in pairs(v) do next[field] = value end
+        next.thread, next.before, next.beforeId = nil, nil, nil
+        next.offset, next.cursors = 0, {}
+        return next
+      end
+    end)
+  end
   return {
     save = save, restore = restore, remember = remember, resolve = resolve, clear = clear, discard = discard,
-    revokeSms = revokeSms,
+    revokeSms = revokeSms, revokeChats = revokeChats,
     saved = function(key)
       return views.get(key)
     end,

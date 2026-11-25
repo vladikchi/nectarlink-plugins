@@ -491,6 +491,13 @@ reply("apps", { error = "feature_denied", feature = "mirroring.app_windows",
   upgrade = { action = "raisePower", target = "elevated" } }, 403)
 assert(latest.page.error == "apps_elevated" and latest.deniedPages["apps:one"])
 assert(not (latest.deniedPages and latest.deniedPages["messages:one"]))
+page("messages", "chat-db-retry", { limit = 7, force = true })
+local complete = { items = { { id = "kept", kind = "chat" }, { id = "sms", kind = "sms" } } }
+reply("messages", complete)
+page("messages", "chat-db-unavailable", { limit = 7, force = true })
+reply("messages", { items = { { id = "sms", kind = "sms" } }, localChatsIncomplete = true })
+assert(latest.page.error == "local_chats_unavailable" and #latest.page.data.items == 2)
+assert(latest.page.data.items[1].id == "kept")
 print(
   "PASS: warm reads=0 HTTP, single-flight, stale-while-refresh, quiet redraw suppression, auth invalidation, missing previews, LRU and lazy Home polling"
 )

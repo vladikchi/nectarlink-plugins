@@ -2,6 +2,7 @@
 -- No real profile, network, process or phone commands are used.
 dofile("tests/test_runtime.lua")
 local watchers, commands, tree = {}, {}, nil
+local firstFrame, recordFirst, now = nil, false, 0
 local fixture = {
   state = "ready",
   cacheEpoch = 0,
@@ -19,10 +20,12 @@ ui = setmetatable({}, {
 })
 panel = {
   render = function(value)
+    if recordFirst and not firstFrame then firstFrame = value end
     tree = value
   end,
 }
 noctalia = {
+  nowMs = function() return now end,
   getConfig = function()
     return nil
   end,
@@ -90,6 +93,18 @@ local function noLoading()
     return n.kind == "label" and (n.props.text or ""):find("Loading from phone", 1, true)
   end), "a remembered page must not flash a loading placeholder")
 end
+local function reopenFromMemory(ms, ...)
+  onClose()
+  fixture.page, fixture.threads = nil, nil
+  now = now + ms
+  firstFrame, recordFirst = nil, true
+  onOpen()
+  local finalTree = tree
+  tree = assert(firstFrame, "opening must render before an IPC reply")
+  for _, id in ipairs({ ... }) do assert(key(id), "missing from first render: " .. id) end
+  noLoading()
+  tree, recordFirst = finalTree, false
+end
 onOpen()
 key("nav-apps").props.onClick()
 respond({ items = { { id = "one-app", title = "One cached app" } } })
@@ -122,8 +137,7 @@ onNavigate("apps")
 assert(last("page").value.search == "Camera" and last("page").value.offset == offset)
 assert(last("page").value.key ~= searched and key("page-item-camera-page2"))
 noLoading()
-onClose()
-onOpen()
+reopenFromMemory(600000, "page-item-camera-page2")
 assert(last("page").value.offset == offset and key("page-item-camera-page2"))
 
 -- The two message panes retain separate cursors and use one IPC command.
@@ -154,9 +168,7 @@ assert(key("thread-item-thread") and key("page-item-sms"), "refresh must not bla
 fixture.threads = { key = leftKey, status = "ready", kind = "messages", thread = "", device = "one",
   data = { items = { { id = "updated-left", kind = "sms" } } } }
 watchers["nl.snapshot"](fixture)
-onClose()
-fixture.threads = nil
-onOpen()
+reopenFromMemory(300000, "thread-item-updated-left", "page-item-sms")
 assert(key("thread-item-updated-left") and key("page-item-sms"), "reopen uses the latest left pane")
 
 -- Returning to a section must not replay an action or revive an old click.
@@ -221,6 +233,8 @@ onNavigate("photos")
 assert(last("page").value.album == "camera-album" and last("page").value.before_id == "photo1")
 assert(key("page-item-photo2"))
 noLoading()
+reopenFromMemory(600000, "page-item-photo2")
+assert(last("page").value.album == "camera-album" and last("page").value.before_id == "photo1")
 onNavigate("apps")
 fixture.messagesDenied = true
 watchers["nl.snapshot"](fixture)
@@ -288,6 +302,32 @@ assert(not key("page-item-camera-page2"))
 assert(last("page").value.search == "" and last("page").value.offset == 0)
 onNavigate("calls")
 assert(not key("page-item-call"))
+
+onNavigate("messages")
+local scope, keep = string.rep("a", 64), string.rep("b", 64)
+local policy = { instance = string.rep("c", 64), revision = "1", hidden = {} }
+fixture.notificationPolicy = policy
+fixture.smsDenied = nil
+watchers["nl.snapshot"](fixture)
+local listKey = last("page").value.key
+fixture.page = { key = listKey, status = "ready", kind = "messages", thread = "", device = "one", data = { items = {
+  { id = "chat:hide", kind = "chat", appScope = scope },
+  { id = "chat:keep", kind = "chat", appScope = keep },
+  { id = "test-sms", kind = "sms" },
+} } }
+watchers["nl.snapshot"](fixture)
+key("thread-item-chat:hide").props.onClick()
+respond({ items = { { id = "open-text", subtitle = "Fixture" } }, appScope = scope })
+key("page-item-open-text").props.onClick()
+assert(key("message-detail"))
+onClose()
+fixture = {
+  state = "ready", cacheEpoch = 1, devices = fixture.devices, pageRevocations = fixture.pageRevocations,
+  notificationPolicy = { instance = policy.instance, revision = "2", hidden = { [scope] = true } },
+}
+onOpen()
+assert(not key("message-detail") and not key("thread-item-chat:hide"))
+assert(key("thread-item-chat:keep") and key("thread-item-test-sms"))
 print(
   "PASS: immediate warm navigation, failed refresh retention, search/page/chat restore, phone/auth isolation, no restored actions"
 )

@@ -1,6 +1,7 @@
 -- Actual panel code, mocked host. No HTTP or real-phone actions.
 dofile("tests/test_runtime.lua")
 local watchers, tree, commands, config = {}, nil, {}, {}
+local closeRequests = 0
 config.panel_controls = false
 ui = setmetatable({}, {
   __index = function(_, kind)
@@ -10,6 +11,7 @@ ui = setmetatable({}, {
   end,
 })
 panel = {
+  close = function() closeRequests = closeRequests + 1 end,
   render = function(node)
     tree = node
   end,
@@ -150,6 +152,31 @@ assert(keyed("files").props.fill == "primary/0.16")
 onTileHover("false", "files")
 assert(keyed("files").props.fill == "surface") -- Minimal mock has no palette API.
 assert(keyed("event-a") and not keyed("event-b"))
+do
+  local times = {}
+  noctalia.formatTime = function(_, seconds)
+    times[#times + 1] = seconds
+    return "12:00"
+  end
+  fixture.timeline[1].timestamp = 1795541400
+  fixture.notificationsState = "ready"
+  fixture.notifications = { { deviceId = "one", key = "clock", timestamp = 1795541401000 } }
+  update(fixture)
+  assert(times[1] == 1795541401 and times[2] == 1795541400)
+  fixture.timeline[1].timestamp, fixture.notifications, fixture.notificationsState = nil, nil, nil
+  noctalia.formatTime = nil
+end
+local files = keyed("files").props.onClick
+local beforeFiles = #commands
+files()
+files()
+assert(closeRequests == 1 and #commands == beforeFiles)
+onClose()
+assert(#commands == beforeFiles + 1 and commands[#commands].action == "files_after_close")
+assert(commands[#commands].device == "one" and commands[#commands].value == false)
+files()
+assert(closeRequests == 1)
+onOpen()
 fixture.devices[1].online = false
 update(fixture)
 assert(not keyed("files").props.onClick and not keyed("clipboard").props.onClick)
