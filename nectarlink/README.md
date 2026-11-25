@@ -2,26 +2,28 @@
 
 Control a paired Android phone from Noctalia. Check its battery and notifications, send SMS, manage calls, browse photos, and start screen mirroring, webcam, or audio sessions.
 
-![NectarLink panel showing demo data](screenshot.webp)
+![NectarLink Home in Noctalia with a demo phone, battery estimate, notifications, and recent activity](screenshot.webp)
 
 ## Plugin
 
 | Field | Value |
 | --- | --- |
 | ID | `vladikchi/nectarlink` |
+| Version | `0.17.2` |
+| Panel | 1104 × 560 |
 | Entries | Bar widget: `vladikchi/nectarlink:phone`; panel: `vladikchi/nectarlink:controls`; service: `vladikchi/nectarlink:connection` |
 | Plugin API | 32 (Noctalia 5.2.0 or later) |
 | License | [GPL-3.0-or-later](LICENSE) |
 
 ## Requirements
 
-- Install [`nectarlink-desktop`](https://github.com/vladikchi/nectarlink-noctalia/releases/latest) from the **NectarLink for Noctalia** fork. Upstream NectarLink lacks the local API routes this plugin needs. The fork must run as the same user as Noctalia. An AppImage works too: make it executable and set the `executable` option to its absolute path.
+- Install [`nectarlink-desktop`](https://github.com/vladikchi/nectarlink-noctalia/releases/latest) from the **NectarLink for Noctalia** fork. Upstream NectarLink lacks the local API routes this plugin needs. The [desktop source branch](https://github.com/vladikchi/nectarlink-noctalia/tree/noctalia-desktop-only) provides `pageCacheV2`; packaged builds may expose the older API. Run the app as the same user as Noctalia. An AppImage works too: make it executable and set the `executable` option to its absolute path.
 - Install `xdg-open` on `PATH` to open the setup guide in your browser.
 - Install the [official NectarLink Android app](https://github.com/thtbee/nectarlink/releases/tag/v0.1.5) on your phone and pair it with the desktop app. Available controls depend on Android permissions and device capabilities.
 
 ## Usage
 
-1. Start the NectarLink desktop app. Under **Settings → Connection & About**, enable **Local automation API**.
+1. Start the NectarLink desktop app. Under **Settings → Connection & About**, enable **Local automation API**. If the app exposes the separate **Notifications and messages** toggle, enable it to let the plugin read them.
 2. Enable **NectarLink** under **Settings → Plugins**. If installing from the standalone Git source, follow the [source setup guide](https://github.com/vladikchi/nectarlink-plugins#installation) first. The `connection` service starts with the plugin; there is no separate process or systemd unit to start.
 3. In **Settings → Panels**, select your bar and open **Widgets**. Add the NectarLink widget (`vladikchi/nectarlink:phone`). It shows the first online phone and its battery state. Left- or right-click the widget to open the controls panel. You can also open it without adding the widget:
 
@@ -106,7 +108,7 @@ Page errors distinguish the local private-API switch (`not_allowed`), SMS access
 
 The service ticks every two seconds. It normally refreshes devices every four seconds with the panel open and every 30 seconds with it closed. Home reads respect notification and timeline settings and are warmed once per API binding. Closing the panel stops refreshes of the visible page. With `pageCacheV2`, [`service/warmup.luau`](service/warmup.luau) waits ten seconds after observing a stable connection and then warms the first screen of Messages, Photos, and Apps for the selected phone, one read at a time. An open panel pauses the queue and can join a read already in progress. Each section gets one attempt, and a section already filled by a visit is skipped. A timeout, expired cache, or short reconnect does not start another queue. A confirmed grant can rearm the affected section. Warmup never dispatches actions.
 
-Changes to the token or port are detected by rereading the file. A change or loss of credentials discards stale responses and clears associated service data and saved views. An action started under old credentials is not sent again under new ones.
+The service rereads the token file to detect changes to the token or port. Credential changes discard stale responses and prepared requests, even if the previous credentials reappear. The client does not follow redirects. An action started under old credentials is not sent again under new ones.
 
 Desktop builds that report private-access and notification-rule generations use opaque app tags. Hiding an app removes its cached notification rows and conversations, including any open text, without clearing SMS, other chats or other sections. Pending reads from before the rule changed cannot restore those rows. The plugin learns changes from its existing device read; it does not add a poll.
 
@@ -132,7 +134,7 @@ A fresh response avoids HTTP. Age uses `nowMs()` when available and service tick
 
 On a cold first page of Messages, a desktop build advertising `localMessageThreads` can return saved notification conversations while the normal request is still fetching SMS. These chats can be opened before SMS arrives. With `pageCacheV2`, all conversation-list offsets share one bounded index per phone. The plugin slices it locally without a phone request; neither an incomplete SMS result nor a local chat database error can replace a complete index. The refresh button updates both the list and the open conversation without resetting either cursor. SMS history within an individual thread is still read separately.
 
-With `pageCacheV2`, Photos first returns the rows and cached thumbnails. The plugin shows those immediately, then asks for missing thumbnails and albums. NectarLink reuses its existing disk thumbnail cache with the gallery's limits; the plugin does not store photos or messages on disk. The Apps list and click-to-launch path share the desktop app catalogue when it contains a recent match. A confirmed Apps permission grant rearms one background read. Old desktop builds still work without the new query fields.
+With `pageCacheV2`, Photos first returns rows and cached thumbnails. The plugin shows those immediately, then asks for missing thumbnails and albums. NectarLink uses its disk thumbnail cache; the plugin does not store photos or messages on disk. The Apps list and click-to-launch path share the desktop app catalogue when it contains a recent match. A confirmed Apps permission grant rearms one background read. Builds that do not advertise `pageCacheV2` use standard page queries.
 
 The response cache keeps at most 24 entries with an estimated combined budget of 4 MiB. It evicts least recently used entries, preferring to keep the conversation index, the first photo and app pages, and the last viewed photo page within the same limits. [`cache_size.luau`](cache_size.luau) estimates strings and tables, avoids revisiting cycles, and caps traversal depth at 64. This is not a measurement of Noctalia's memory use. A valid response that is too large may be displayed without being cached. When a preview is missing, only the affected rows and their containing tables are copied. A timeout or temporary disconnect retains previous successful reads. Authorization loss clears the cache; confirmed phone removal or revoked page access clears only the affected data. Unrelated UI settings do not reset it. After an action, `invalidateKind()` targets the affected section and phone.
 

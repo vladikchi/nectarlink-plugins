@@ -1,23 +1,23 @@
 # NectarLink for Noctalia
 
-The NectarLink plugin lets you control an Android phone from your PC through Noctalia. Use the widget to check the battery level or open the panel to read notifications, see recent calls, send SMS, dial a number, or answer an incoming call. You can also mirror the phone's screen and type on the phone with your computer keyboard.
+NectarLink brings your paired Android phone into Noctalia. The bar widget shows the battery level; the **1104 × 560** panel puts phone controls, notifications, and recent activity on one screen. Open Messages, Calls, Photos, Apps, or Deck from the sidebar.
 
-Use the phone as a webcam or open its camera to take a photo. Audio works both ways: listen to phone audio on your PC or use the phone as a speaker for your computer. The same panel gives you access to photos, file sharing, and clipboard sharing.
+The plugin (`0.17.2`, Plugin API `32`) talks to [NectarLink for Noctalia](https://github.com/vladikchi/nectarlink-noctalia) on your PC. The desktop app handles the connection and commands; the plugin does not connect to the phone directly.
 
-[NectarLink](https://github.com/thtbee/nectarlink) connects the phone to the computer and handles those commands. The plugin provides the controls in Noctalia, so the app needs to be running. Use [NectarLink for Noctalia](https://github.com/vladikchi/nectarlink-noctalia): the upstream build does not include the required local API routes.
-
-![NectarLink panel in Noctalia with demo data](nectarlink/screenshot.webp)
+![NectarLink Home in Noctalia with a demo phone, battery estimate, notifications, and recent activity](nectarlink/screenshot.webp)
 
 ## Installation
 
-You need Noctalia with **Plugin API 32** and an Android phone paired with NectarLink.
+You need **Noctalia 5.2.0 or later** and an Android phone paired with NectarLink. No custom Android build is required.
 
-1. Install [NectarLink for Noctalia](https://github.com/vladikchi/nectarlink-noctalia#installation-on-linux) on the PC. Start the app, pair your phone, and enable **Local automation API** under **Settings → Connection & About**. Run NectarLink and Noctalia as the same user.
+1. Install [NectarLink for Noctalia](https://github.com/vladikchi/nectarlink-noctalia#installation-on-linux) on the PC. To use the `pageCacheV2` features described below, build the [desktop source branch](https://github.com/vladikchi/nectarlink-noctalia/tree/noctalia-desktop-only) using its [build notes](https://github.com/vladikchi/nectarlink-noctalia/blob/noctalia-desktop-only/NOCTALIA-LOCAL.md). Start the app, pair your phone, and enable **Local automation API** under **Settings → Connection & About**. Run NectarLink and Noctalia as the same user.
 2. In Noctalia, open **Settings → Plugins → Sources → Add source**, choose **Git**, and enter `https://github.com/vladikchi/nectarlink-plugins`. This is a custom source, not part of Noctalia's default catalog.
 3. In the **Plugin Store**, find **NectarLink**, add it, and make sure it is enabled.
 4. In Noctalia settings, open **Panels**, select your panel, and open **Widgets**. Add the NectarLink widget (`vladikchi/nectarlink:phone`), then click it on the bar to open the plugin panel.
 
 If **Open application** cannot find NectarLink, set **NectarLink executable** to the absolute path of the AppImage or `nectarlink-desktop` binary.
+
+On desktop builds with a **Notifications and messages** toggle under **Local automation API**, enable it if you want the plugin to read either. It is separate from the main API switch.
 
 ## What you can do from the panel
 
@@ -30,10 +30,13 @@ If **Open application** cannot find NectarLink, set **NectarLink executable** to
 
 Available actions depend on the phone and its Android permissions. Notification-based chats are not a full conversation history. Action buttons send requests directly, without a confirmation dialog from the plugin. Entering or selecting a number does not dial. Turning off Wi-Fi can disconnect the phone. If an action times out, the plugin does not resend it; check the phone or PC before trying again.
 
+With the desktop API that advertises `pageCacheV2`, returning to Messages, Photos, or Apps can show the last loaded page while it refreshes. In Messages, ↻ updates the conversation list and the open chat without resetting their pages. Photos show the grid and cached previews before requesting missing thumbnails. Older API builds use standard page reads.
+
 ## If the panel cannot connect
 
 - **No connection to the app:** make sure NectarLink for Noctalia is running, its local API is enabled, and both programs run as the same user. The plugin looks for the API file in the default profile at `~/.local/share/Nectarlink/`.
 - **Phone is missing:** check pairing and connectivity in NectarLink. **Check connection** refreshes the panel without sending commands to the phone.
+- **Notifications or messages are unavailable:** check the desktop privacy toggle and Android permissions. Apps hidden in NectarLink stay hidden from the plugin on desktop builds that report notification rules.
 - **Phone is visible but an action is unavailable:** check Android permissions and whether your phone supports that feature.
 
 [How the plugin works](nectarlink/README.md) — architecture, local API, caching, settings, and tests.
