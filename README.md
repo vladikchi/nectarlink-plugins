@@ -1,10 +1,10 @@
 # NectarLink for Noctalia
 
-NectarLink brings your paired Android phone into Noctalia. The bar widget shows the battery level; the **1104 × 560** panel puts phone controls, notifications, and recent activity on one screen. Open Messages, Calls, Photos, Apps, or Deck from the sidebar.
+Check your Android phone's battery from the Noctalia bar. Open the NectarLink panel to read notifications and recent activity, send SMS, manage calls, browse photos, or launch supported phone apps.
 
-The plugin (`0.17.2`, Plugin API `32`) talks to [NectarLink for Noctalia](https://github.com/vladikchi/nectarlink-noctalia) on your PC. The desktop app handles the connection and commands; the plugin does not connect to the phone directly.
+The plugin requires [NectarLink for Noctalia](https://github.com/vladikchi/nectarlink-noctalia) to be running on your PC with your phone paired.
 
-![NectarLink Home in Noctalia with a demo phone, battery estimate, notifications, and recent activity](nectarlink/screenshot.webp)
+![NectarLink panel](nectarlink/screenshot.webp)
 
 ## Installation
 
@@ -23,7 +23,7 @@ On desktop builds with a **Notifications and messages** toggle under **Local aut
 
 - **Home:** select a phone, check its battery, read notifications, and see recent activity. Ring the phone to find it, use the flashlight or Do Not Disturb, and manage Wi-Fi, Bluetooth, hotspot, and ringer mode.
 - **Screen, camera, and audio:** mirror the phone's screen on your PC, open its camera to take a photo, or use it as a webcam. Play phone audio on the PC or use the phone as a PC speaker. You can also open supported video from the PC on the phone.
-- **Typing and sharing:** type on the phone with your PC keyboard, or open NectarLink's file and clipboard sharing tools. The file and clipboard shortcuts are available when exactly one phone is online.
+- **Typing and sharing:** type on the phone with your PC keyboard, or open NectarLink's file and clipboard sharing tools. These sharing shortcuts require a single paired phone, and it must be online.
 - **Messages and calls:** read SMS and notification-based chats, send SMS, reply through an active notification, browse call history, dial a number, or manage an active call.
 - **Photos:** browse albums and thumbnails and request the original photo on your PC.
 - **Apps and Deck:** open supported phone apps on the PC and run Deck tiles already configured in NectarLink.
@@ -35,8 +35,8 @@ With the desktop API that advertises `pageCacheV2`, returning to Messages, Photo
 ## If the panel cannot connect
 
 - **No connection to the app:** make sure NectarLink for Noctalia is running, its local API is enabled, and both programs run as the same user. The plugin looks for the API file in the default profile at `~/.local/share/Nectarlink/`.
-- **Phone is missing:** check pairing and connectivity in NectarLink. **Check connection** refreshes the panel without sending commands to the phone.
+- **Phone is missing:** check pairing and connectivity in NectarLink. Use **Check connection** on the setup screen or **Refresh** on **Home** to update the panel without taking any action on the phone.
 - **Notifications or messages are unavailable:** check the desktop privacy toggle and Android permissions. Apps hidden in NectarLink stay hidden from the plugin on desktop builds that report notification rules.
 - **Phone is visible but an action is unavailable:** check Android permissions and whether your phone supports that feature.
 
-[How the plugin works](nectarlink/README.md) — architecture, local API, caching, settings, and tests.
+[Plugin settings and IPC commands](nectarlink/README.md)
