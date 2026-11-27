@@ -10,7 +10,7 @@ The plugin requires [NectarLink for Noctalia](https://github.com/vladikchi/necta
 
 You need **Noctalia 5.2.0 or later** and an Android phone paired with NectarLink. No custom Android build is required.
 
-1. Install [NectarLink for Noctalia](https://github.com/vladikchi/nectarlink-noctalia#installation-on-linux) on the PC. To use the `pageCacheV2` features described below, build the [desktop source branch](https://github.com/vladikchi/nectarlink-noctalia/tree/noctalia-desktop-only) using its [build notes](https://github.com/vladikchi/nectarlink-noctalia/blob/noctalia-desktop-only/NOCTALIA-LOCAL.md). Start the app, pair your phone, and enable **Local automation API** under **Settings → Connection & About**. Run NectarLink and Noctalia as the same user.
+1. Choose an AppImage, `.deb`, or `.rpm` from the [Nightly 12 for Noctalia release](https://github.com/vladikchi/nectarlink-noctalia/releases/tag/v0.1.6-nightly.12%2Bnoctalia). Start the desktop app, pair your phone, and enable **Local automation API** under **Settings → Connection & About**. Run NectarLink and Noctalia as the same user.
 2. In Noctalia, open **Settings → Plugins → Sources → Add source**, choose **Git**, and enter `https://github.com/vladikchi/nectarlink-plugins`. This is a custom source, not part of Noctalia's default catalog.
 3. In the **Plugin Store**, find **NectarLink**, add it, and make sure it is enabled.
 4. In Noctalia settings, open **Panels**, select your panel, and open **Widgets**. Add the NectarLink widget (`vladikchi/nectarlink:phone`), then click it on the bar to open the plugin panel.
